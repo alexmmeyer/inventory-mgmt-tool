@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inventory Management</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <div class="main-layout">
+    <!-- Left: Inventory Management -->
+    <div class="left-panel">
+      <h1>Inventory Management</h1>
+
+      <!-- Season Map at the top -->
+      <div class="seatmap-row season-row">
+        <div class="seatmap-container" data-id="season">
+          <h3 style="margin-bottom: 8px;">Season Map</h3>
+          <div class="sublabel">(controls seat selectability at the event level)</div>
+          <div class="seatmap" id="season"></div>
+        </div>
+      </div>
+  <hr>
+  <h3 style="text-align:center; margin: 16px 0;">Event Maps</h3>
+      <div class="button-bar">
+        <button id="hold">Hold</button>
+        <button id="release-hold">Release Hold</button>
+        <button id="kill">Kill</button>
+        <button id="release-kill">Release Kill</button>
+        <button id="reset">Reset</button>
+      </div>
+
+      <div id="palette" class="hidden" style="margin-bottom: 16px;">
+        <div class="color-swatch" data-color="#FF0000" style="background:#FF0000"></div>
+        <div class="color-swatch" data-color="#00FF00" style="background:#00FF00"></div>
+        <div class="color-swatch" data-color="#0000FF" style="background:#0000FF"></div>
+        <div class="color-swatch" data-color="#FFA500" style="background:#FFA500"></div>
+      </div>
+
+      <div class="seatmap-row top">
+        <div class="seatmap-container" data-id="packageA">
+          <div class="label">Package A</div>
+          <div class="sublabel">(contains events 1, 2, 3)</div>
+          <div class="seatmap" id="packageA"></div>
+        </div>
+        <div class="seatmap-container" data-id="packageB">
+          <div class="label">Package B</div>
+          <div class="sublabel">(contains events 2, 3)</div>
+          <div class="seatmap" id="packageB"></div>
+        </div>
+      </div>
+
+      <div class="seatmap-row bottom">
+        <div class="seatmap-container" data-id="event1">
+          <div class="label">Event 1</div>
+          <div class="seatmap" id="event1"></div>
+        </div>
+        <div class="seatmap-container" data-id="event2">
+          <div class="label">Event 2</div>
+          <div class="seatmap" id="event2"></div>
+        </div>
+        <div class="seatmap-container" data-id="event3">
+          <div class="label">Event 3</div>
+          <div class="seatmap" id="event3"></div>
+        </div>
+      </div>
+
+      <div id="palette" class="hidden">
+        <div class="color-swatch" data-color="#FF0000" style="background:#FF0000"></div>
+        <div class="color-swatch" data-color="#00FF00" style="background:#00FF00"></div>
+        <div class="color-swatch" data-color="#0000FF" style="background:#0000FF"></div>
+        <div class="color-swatch" data-color="#FFA500" style="background:#FFA500"></div>
+      </div>
+    </div>
+
+    <!-- Right: List View -->
+    <div class="right-panel">
+      <h1>List View</h1>
+      <div style="margin: 20px 0;">
+        <label style="margin-right: 24px;">
+          <input type="checkbox" id="separate-by-hold" checked />
+          Separate by hold
+        </label>
+        <label style="margin-right: 24px;">
+          <input type="checkbox" id="include-unavailable" />
+          <script>
+            document.addEventListener('DOMContentLoaded', function() {
+              document.getElementById('include-unavailable').addEventListener('change', function() {
+                if (window.updateAvailableSeatsTable) {
+                  window.updateAvailableSeatsTable();
+                }
+              });
+            });
+          </script>
+          Include Not For Sale inventory
+        </label>
+        <label>
+          <input type="checkbox" id="include-held-killed-elsewhere" />
+          <script>
+            document.addEventListener('DOMContentLoaded', function() {
+              document.getElementById('include-held-killed-elsewhere').addEventListener('change', function() {
+                if (window.updateAvailableSeatsTable) {
+                  window.updateAvailableSeatsTable();
+                }
+              });
+            });
+          </script>
+          Include held/killed in another event
+        </label>
+      </div>
+      <div id="available-seats-table"></div>
+    </div>
+  </div>
+
+  <!-- Selection UI -->
+  <div id="selection-ui" class="selection-ui hidden">
+    <div class="selection-header">
+      <h3>Selected Seats</h3>
+      <div class="header-buttons">
+        <button id="save-selection" class="save-btn hidden">Save Selection</button>
+        <button id="clear-selection" class="clear-btn">Clear Selection</button>
+      </div>
+    </div>
+    <div class="selection-content">
+      <div class="selection-info">
+        <span id="selection-count">0 seats selected</span>
+        <span id="selection-details"></span>
+      </div>
+      <div class="availability-section">
+        <div class="packages-section">
+          <h4>Packages
+            <button id="select-all-packages" type="button" style="margin-left:10px;font-size:12px;">Select All</button>
+            <button id="deselect-all-packages" type="button" style="margin-left:4px;font-size:12px;">Deselect All</button>
+          </h4>
+          <div class="checkbox-group">
+            <label class="checkbox-item">
+              <input type="checkbox" id="pkg-packageA" data-map="packageA" />
+              <span class="checkbox-label">Package A</span>
+              <span class="seat-count" id="count-packageA">(0/0)</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="pkg-packageB" data-map="packageB" />
+              <span class="checkbox-label">Package B</span>
+              <span class="seat-count" id="count-packageB">(0/0)</span>
+            </label>
+          </div>
+        </div>
+        <div class="events-section">
+          <h4>Events
+            <button id="select-all-events" type="button" style="margin-left:10px;font-size:12px;">Select All</button>
+            <button id="deselect-all-events" type="button" style="margin-left:4px;font-size:12px;">Deselect All</button>
+          </h4>
+          <div class="checkbox-group">
+            <label class="checkbox-item">
+              <input type="checkbox" id="evt-event1" data-map="event1" />
+              <span class="checkbox-label">Event 1</span>
+              <span class="seat-count" id="count-event1">(0/0)</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="evt-event2" data-map="event2" />
+              <span class="checkbox-label">Event 2</span>
+              <span class="seat-count" id="count-event2">(0/0)</span>
+            </label>
+            <label class="checkbox-item">
+              <input type="checkbox" id="evt-event3" data-map="event3" />
+              <span class="checkbox-label">Event 3</span>
+              <span class="seat-count" id="count-event3">(0/0)</span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+
+</html>

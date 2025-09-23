@@ -1,0 +1,383 @@
+/* Conditional formatting for table rows in list view */
+.selectable-row {
+  color: #111;
+}
+.unselectable-row {
+  color: red;
+  font-style: normal;
+}
+body {
+  font-family: sans-serif;
+  padding: 0;
+  margin: 0;
+  background: #f0f0f0;
+}
+
+.main-layout {
+  display: flex;
+  flex-direction: row;
+  min-height: 100vh;
+}
+
+.left-panel, .right-panel {
+  flex: 1 1 0;
+  padding: 32px 24px;
+  box-sizing: border-box;
+}
+
+.left-panel {
+  background: #f0f0f0;
+  border-right: 1px solid #ddd;
+}
+
+.right-panel {
+  background: #fff;
+  min-width: 350px;
+  max-width: 900px;
+  box-shadow: 0 0 8px rgba(0,0,0,0.04);
+}
+
+/* Center H1s in both panels */
+.left-panel h1,
+.right-panel h1 {
+  text-align: center;
+}
+
+/* Center button bar and buttons */
+.button-bar {
+  margin-bottom: 20px;
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.button-bar button {
+  margin: 5px;
+}
+
+/* Center checkbox in right panel */
+.right-panel > div[style] {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Center seatmap labels and containers */
+.seatmap-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 30px;
+}
+
+.seatmap-container {
+  margin: 0 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.label {
+  font-weight: 400;
+  font-size: 15px;
+  margin-bottom: 2px;
+  user-select: none;
+  text-align: center;
+  width: 100%;
+}
+
+.sublabel {
+  font-size: 12px;
+  margin-bottom: 10px;
+  color: #666;
+  user-select: none;
+  text-align: center;
+  width: 100%;
+}
+
+.seatmap {
+  display: block;
+}
+
+.seat-grid {
+  margin-bottom: 24px;
+}
+
+.seat-grid div {
+  font-weight: 400;
+  font-size: 13px;
+  user-select: none;
+}
+
+.seat {
+  width: 30px;
+  height: 30px;
+  background-color: #f2f2f2;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: border 0.2s, background 0.2s;
+  position: relative;
+}
+
+.child .seat {
+  background-color: #C6DCFF;
+}
+
+.seat.selected {
+  outline: 2px dashed #000;
+}
+
+#palette {
+  margin: 10px auto;
+  justify-content: center;
+  gap: 10px;
+}
+#palette.hidden {
+  display: none !important;
+}
+#palette:not(.hidden) {
+  display: flex;
+}
+
+.color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 2px solid #000;
+  cursor: pointer;
+}
+
+.hidden {
+  display: none;
+}
+
+.dotted {
+  border-style: dotted !important;
+}
+
+.unselectable {
+  background-color: gray !important;
+  opacity: 0.5;
+}
+
+.only-avail-star {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 16px;
+  color: #2ecc40;
+  pointer-events: none;
+  z-index: 2;
+}
+
+#selection-box {
+  z-index: 9999;
+  pointer-events: none;
+}
+
+/* Table container with horizontal scroll */
+#available-seats-table {
+  overflow-x: auto;
+  width: 100%;
+}
+
+table {
+  background: #fff;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  min-width: 100%;
+  width: max-content;
+}
+
+th, td {
+  font-size: 12px;
+  padding: 3px 8px !important;
+  white-space: nowrap;
+}
+
+/* Selection UI Styles */
+.selection-ui {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border-top: 2px solid #7279fe;
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.1);
+  z-index: 1000;
+  max-height: 35vh;
+  overflow-y: auto;
+}
+
+.selection-ui.hidden {
+  display: none;
+}
+
+.selection-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid #eee;
+  background: #f8f9fa;
+}
+
+.header-buttons {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.selection-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 16px;
+}
+
+.save-btn {
+  background: #28a745;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+
+.save-btn:hover {
+  background: #218838;
+}
+
+.clear-btn {
+  background: #dc3545;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.2s;
+}
+
+.clear-btn:hover {
+  background: #c82333;
+}
+
+.selection-content {
+  padding: 15px 20px;
+}
+
+.selection-info {
+  margin-bottom: 15px;
+  display: flex;
+  gap: 15px;
+  align-items: center;
+}
+
+.selection-info span {
+  font-size: 13px;
+  color: #666;
+}
+
+.availability-section {
+  display: flex;
+  gap: 30px;
+  flex-wrap: wrap;
+}
+
+.packages-section,
+.events-section {
+  flex: 1;
+  min-width: 200px;
+}
+
+.packages-section h4,
+.events-section h4 {
+  margin: 0 0 8px 0;
+  color: #333;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.checkbox-item:hover {
+  background: #f8f9fa;
+}
+
+.checkbox-item input[type="checkbox"] {
+  margin: 0;
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+}
+
+.checkbox-item.mixed-state {
+  opacity: 0.7;
+}
+
+.checkbox-item.mixed-state input[type="checkbox"] {
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.checkbox-item.mixed-state input[type="checkbox"]:checked {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+
+.checkbox-item.mixed-state input[type="checkbox"]:checked::after {
+  content: '✓';
+  color: white;
+  font-size: 12px;
+  font-weight: bold;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.checkbox-label {
+  font-size: 13px;
+  color: #333;
+  flex: 1;
+}
+
+.seat-count {
+  font-size: 11px;
+  color: #666;
+  font-weight: 500;
+}
+
+/* Responsive design for selection UI */
+@media (max-width: 768px) {
+  .availability-section {
+    flex-direction: column;
+    gap: 15px;
+  }
+  
+  .selection-header {
+    padding: 10px 16px;
+  }
+  
+  .selection-content {
+    padding: 12px 16px;
+  }
+}
