@@ -42,10 +42,28 @@ const indirectStates = pgTable('indirect_states', {
   sourceEvent: varchar('source_event', { length: 50 }).notNull(),
 });
 
+// State categories table
+const stateCategories = pgTable('state_categories', {
+  id: serial('id').primaryKey(),
+  name: varchar('name', { length: 100 }).notNull(),
+  displayOrder: integer('display_order').notNull().default(0),
+});
+
+// State category memberships table
+const stateCategoryMemberships = pgTable('state_category_memberships', {
+  id: serial('id').primaryKey(),
+  categoryId: integer('category_id').references(() => stateCategories.id, { onDelete: 'cascade' }).notNull(),
+  stateName: varchar('state_name', { length: 50 }).notNull(), // 'Open', 'In Cart', 'Sold', etc.
+}, (table) => ({
+  uniqueMembershipIdx: uniqueIndex('unique_membership_idx').on(table.categoryId, table.stateName),
+}));
+
 module.exports = {
   seats,
   indirectHolds,
   indirectKills,
   indirectStates,
+  stateCategories,
+  stateCategoryMemberships,
 };
 

@@ -9,14 +9,31 @@
 </head>
 
 <body>
-  <!-- View Toggle Buttons -->
-  <div class="view-toggle-container">
-    <div class="view-toggle-buttons">
-      <button id="map-view-btn" class="view-toggle-btn active">Map View</button>
-      <button id="list-view-btn" class="view-toggle-btn">List View</button>
+  <!-- Navigation Dropdown -->
+  <div class="nav-dropdown-container">
+    <button id="nav-dropdown-btn" class="nav-dropdown-btn">☰ Menu</button>
+    <div id="nav-dropdown-menu" class="nav-dropdown-menu hidden">
+      <div class="nav-dropdown-section">
+        <div class="nav-dropdown-label">Config</div>
+        <a href="#" class="nav-dropdown-item" data-section="config">State Categories</a>
+      </div>
+      <div class="nav-dropdown-section">
+        <div class="nav-dropdown-label">Prototype</div>
+        <a href="#" class="nav-dropdown-item" data-section="prototype">Inventory Management</a>
+      </div>
     </div>
-    <button id="reset-all-btn" class="reset-all-btn">Reset All</button>
   </div>
+
+  <!-- Prototype Section -->
+  <div id="prototype-section" class="main-section active">
+    <!-- View Toggle Buttons -->
+    <div class="view-toggle-container">
+      <div class="view-toggle-buttons">
+        <button id="map-view-btn" class="view-toggle-btn active">Map View</button>
+        <button id="list-view-btn" class="view-toggle-btn">List View</button>
+      </div>
+      <button id="reset-all-btn" class="reset-all-btn">Reset All</button>
+    </div>
 
   <!-- Map View -->
   <div id="map-view" class="view-container active">
@@ -80,8 +97,8 @@
     </div>
   </div>
 
-  <!-- List View -->
-  <div id="list-view" class="view-container">
+    <!-- List View -->
+    <div id="list-view" class="view-container">
     <div class="list-view-panel">
       <h1 class="list-view-header">List View</h1>
       <div class="list-view-filters">
@@ -149,6 +166,41 @@
             </label>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- Config Section -->
+  <div id="config-section" class="main-section">
+    <div class="config-view-panel">
+      <h1>State Category Configuration</h1>
+      
+      <div class="config-description">
+        <h2>How State Categories Affect Seat Blocking</h2>
+        <p>State categories determine how seats are grouped into blocks in the List View. Seats are grouped together when they share the same:</p>
+        <ul>
+          <li><strong>Event</strong> - Must be in the same event</li>
+          <li><strong>Ticket Type</strong> - Must have the same ticket type</li>
+          <li><strong>Section</strong> - Must be in the same section</li>
+          <li><strong>Row</strong> - Must be in the same row</li>
+          <li><strong>Direct Hold</strong> - Both must have the same direct hold (or both have none)</li>
+          <li><strong>Direct Kill</strong> - Both must have the same direct kill (or both have none)</li>
+          <li><strong>Availability</strong> - Both must be "For Sale" or both "Not For Sale"</li>
+          <li><strong>State Category</strong> - Both seats' states must belong to the same state category (as configured below)</li>
+        </ul>
+        <p><strong>Note:</strong> Seats must also be consecutive (adjacent seat numbers) to be grouped into a block. Each block displays a summary row showing the seat range, and can be expanded to show individual seat details.</p>
+        <p>To configure which states belong to which category, drag state pills between category cards. The first category (by display order) that contains a seat's state will be used for blocking.</p>
+      </div>
+      
+      <div id="state-categories-container" class="state-categories-container">
+        <!-- Category cards will be rendered here -->
+      </div>
+      
+      <div class="config-actions">
+        <button id="add-category-btn" class="add-category-btn">+ Add</button>
+        <button id="reset-config-btn" class="reset-config-btn">Reset</button>
+        <button id="save-config-btn" class="save-config-btn">Save Configuration</button>
       </div>
     </div>
   </div>

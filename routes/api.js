@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { db, seats, indirectHolds, indirectKills, indirectStates } = require('../db/index');
+const { db, seats, indirectHolds, indirectKills, indirectStates, stateCategories, stateCategoryMemberships } = require('../db/index');
 const { eq, and, or, inArray } = require('drizzle-orm');
 const { getRelatedEvents } = require('../services/propagation');
 
@@ -680,6 +680,141 @@ router.post('/seats/reset-all', async (req, res) => {
   } catch (error) {
     console.error('Error resetting seats:', error);
     res.status(500).json({ error: 'Failed to reset seats' });
+  }
+});
+
+// Get all state categories with memberships
+router.get('/state-categories', async (req, res) => {
+  try {
+    const categories = await db.select().from(stateCategories).orderBy(stateCategories.displayOrder);
+    
+    const categoriesWithStates = await Promise.all(
+      categories.map(async (category) => {
+        const memberships = await db.select().from(stateCategoryMemberships)
+          .where(eq(stateCategoryMemberships.categoryId, category.id));
+        return {
+          ...category,
+          states: memberships.map(m => m.stateName),
+        };
+      })
+    );
+    
+    res.json(categoriesWithStates);
+  } catch (error) {
+    console.error('Error fetching state categories:', error);
+    res.status(500).json({ error: 'Failed to fetch state categories' });
+  }
+});
+
+// Create state category
+router.post('/state-categories', async (req, res) => {
+  try {
+    const { name, displayOrder } = req.body;
+    
+    // Get max display order if not provided
+    let order = displayOrder;
+    if (order === undefined || order === null) {
+      const maxOrder = await db.select().from(stateCategories).orderBy(stateCategories.displayOrder);
+      order = maxOrder.length > 0 ? maxOrder[maxOrder.length - 1].displayOrder + 1 : 0;
+    }
+    
+    const [newCategory] = await db.insert(stateCategories).values({
+      name: name || 'new state category',
+      displayOrder: order,
+    }).returning();
+    
+    res.json(newCategory);
+  } catch (error) {
+    console.error('Error creating state category:', error);
+    res.status(500).json({ error: 'Failed to create state category' });
+  }
+});
+
+// Update state category name
+router.put('/state-categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    
+    await db.update(stateCategories)
+      .set({ name })
+      .where(eq(stateCategories.id, parseInt(id)));
+    
+    const [updated] = await db.select().from(stateCategories).where(eq(stateCategories.id, parseInt(id)));
+    res.json(updated);
+  } catch (error) {
+    console.error('Error updating state category:', error);
+    res.status(500).json({ error: 'Failed to update state category' });
+  }
+});
+
+// Delete state category
+router.delete('/state-categories/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.delete(stateCategories).where(eq(stateCategories.id, parseInt(id)));
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting state category:', error);
+    res.status(500).json({ error: 'Failed to delete state category' });
+  }
+});
+
+// Update state category memberships
+router.put('/state-categories/:id/memberships', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { stateNames } = req.body;
+    const categoryId = parseInt(id);
+    
+    // Delete existing memberships
+    await db.delete(stateCategoryMemberships).where(eq(stateCategoryMemberships.categoryId, categoryId));
+    
+    // Insert new memberships
+    if (stateNames && stateNames.length > 0) {
+      const memberships = stateNames.map(stateName => ({
+        categoryId,
+        stateName,
+      }));
+      await db.insert(stateCategoryMemberships).values(memberships);
+    }
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating state category memberships:', error);
+    res.status(500).json({ error: 'Failed to update state category memberships' });
+  }
+});
+
+// Initialize default state category
+router.post('/state-categories/initialize-default', async (req, res) => {
+  try {
+    // Check if any categories exist
+    const existing = await db.select().from(stateCategories);
+    
+    if (existing.length > 0) {
+      return res.json({ message: 'Categories already exist', categories: existing });
+    }
+    
+    // Create "All" category
+    const [allCategory] = await db.insert(stateCategories).values({
+      name: 'All',
+      displayOrder: 0,
+    }).returning();
+    
+    // Add all states to "All" category
+    const allStates = ['Open', 'In Cart', 'Sold', 'Reserved', 'Resold', 'Killed', 'Resale Listed'];
+    const memberships = allStates.map(stateName => ({
+      categoryId: allCategory.id,
+      stateName,
+    }));
+    
+    await db.insert(stateCategoryMemberships).values(memberships);
+    
+    res.json({ success: true, category: allCategory });
+  } catch (error) {
+    console.error('Error initializing default state category:', error);
+    res.status(500).json({ error: 'Failed to initialize default state category' });
   }
 });
 

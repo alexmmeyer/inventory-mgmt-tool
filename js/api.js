@@ -226,6 +226,107 @@ async function resellSeat(seatId) {
   return response.json();
 }
 
+/**
+ * Get all state categories with memberships
+ * @returns {Promise<Array>} Array of category objects with states
+ */
+async function getStateCategories() {
+  const response = await fetch(`${API_BASE_URL}/state-categories`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch state categories');
+  }
+  return response.json();
+}
+
+/**
+ * Create a new state category
+ * @param {string} name - Category name
+ * @param {number} displayOrder - Display order (optional)
+ * @returns {Promise<Object>} Created category object
+ */
+async function createStateCategory(name, displayOrder) {
+  const response = await fetch(`${API_BASE_URL}/state-categories`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name, displayOrder }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to create state category');
+  }
+  return response.json();
+}
+
+/**
+ * Update state category name
+ * @param {number} categoryId - Category ID
+ * @param {string} name - New category name
+ * @returns {Promise<Object>} Updated category object
+ */
+async function updateStateCategoryName(categoryId, name) {
+  const response = await fetch(`${API_BASE_URL}/state-categories/${categoryId}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update state category');
+  }
+  return response.json();
+}
+
+/**
+ * Delete state category
+ * @param {number} categoryId - Category ID
+ * @returns {Promise<Object>} Success response
+ */
+async function deleteStateCategory(categoryId) {
+  const response = await fetch(`${API_BASE_URL}/state-categories/${categoryId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to delete state category');
+  }
+  return response.json();
+}
+
+/**
+ * Update state category memberships
+ * @param {number} categoryId - Category ID
+ * @param {string[]} stateNames - Array of state names to assign to category
+ * @returns {Promise<Object>} Success response
+ */
+async function updateStateCategoryMemberships(categoryId, stateNames) {
+  const response = await fetch(`${API_BASE_URL}/state-categories/${categoryId}/memberships`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ stateNames }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update state category memberships');
+  }
+  return response.json();
+}
+
+/**
+ * Initialize default state category
+ * @returns {Promise<Object>} Success response
+ */
+async function initializeDefaultStateCategory() {
+  const response = await fetch(`${API_BASE_URL}/state-categories/initialize-default`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to initialize default state category');
+  }
+  return response.json();
+}
+
 // Export for browser use
 if (typeof window !== 'undefined') {
   window.seatAPI = {
@@ -242,6 +343,12 @@ if (typeof window !== 'undefined') {
     reserveSeat,
     listSeat,
     resellSeat,
+    getStateCategories,
+    createStateCategory,
+    updateStateCategoryName,
+    deleteStateCategory,
+    updateStateCategoryMemberships,
+    initializeDefaultStateCategory,
   };
 }
 

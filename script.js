@@ -87,6 +87,25 @@ function getSeatState(seat) {
   return 'Open';
 }
 
+// Helper to get state category for a seat state
+// Returns the first category that contains the state
+function getStateCategory(seatState, categories) {
+  if (!categories || categories.length === 0) {
+    return null;
+  }
+  
+  // Sort by displayOrder to check in order
+  const sortedCategories = [...categories].sort((a, b) => a.displayOrder - b.displayOrder);
+  
+  for (const category of sortedCategories) {
+    if (category.states && category.states.includes(seatState)) {
+      return category.name;
+    }
+  }
+  
+  return null; // State not in any category
+}
+
 function createSeatElement(seat, eventId) {
   const seatEl = document.createElement('div');
   seatEl.className = 'seat';
@@ -1187,12 +1206,25 @@ function updateAvailabilityCheckboxes(changedCheckbox = null) {
   });
 }
 
+// Block expand/collapse state (stored by block key)
+let blockExpandState = new Map();
+
 // --- Available seats table ---
 async function updateAvailableSeatsTable() {
   const tableContainer = document.getElementById('available-seats-table');
   if (!tableContainer) return;
 
-  const allSeatRows = [];
+  // Load state categories if not already loaded
+  if (stateCategoriesData.length === 0) {
+    try {
+      const categories = await window.seatAPI.getStateCategories();
+      stateCategoriesData = categories.length > 0 ? categories : [];
+    } catch (error) {
+      console.error('Error loading state categories:', error);
+    }
+  }
+
+  const allSeats = [];
   
   // Fetch all seat data for non-season events
   for (const mapId of seatMaps) {
@@ -1204,22 +1236,18 @@ async function updateAvailableSeatsTable() {
       seats.forEach(seat => {
         const availability = seat.notForSale ? 'Not For Sale' : 'For Sale';
         const state = getSeatState(seat);
+        const stateCategory = getStateCategory(state, stateCategoriesData) || 'Uncategorized';
       
         // Process direct hold
-        let directHold = '-';
-        if (seat.directHoldName) {
-          directHold = seat.directHoldName;
-        }
+        let directHold = seat.directHoldName || null;
       
         // Process indirect holds
         let indirectHolds = '-';
         if (seat.indirectHolds && seat.indirectHolds.length > 0) {
           if (seat.indirectHolds.length === 1) {
-            // Single indirect hold: show "HoldName (SourceEvent)"
             const indirectHold = seat.indirectHolds[0];
             indirectHolds = `${indirectHold.holdName} (${indirectHold.sourceEvent})`;
           } else {
-            // Multiple indirect holds: show comma-separated list
             indirectHolds = seat.indirectHolds
               .map(ih => `${ih.holdName} (${ih.sourceEvent})`)
               .join(', ');
@@ -1227,62 +1255,106 @@ async function updateAvailableSeatsTable() {
         }
       
         // Process direct kill
-        let directKill = '-';
-        if (seat.killName) {
-          directKill = seat.killName;
-        }
+        let directKill = seat.killName || null;
       
         // Process indirect kills
         let indirectKills = '-';
         if (seat.indirectKills && seat.indirectKills.length > 0) {
           if (seat.indirectKills.length === 1) {
-            // Single indirect kill: show "KillName (SourceEvent)"
             const indirectKill = seat.indirectKills[0];
             indirectKills = `${indirectKill.killName} (${indirectKill.sourceEvent})`;
           } else {
-            // Multiple indirect kills: show comma-separated list
             indirectKills = seat.indirectKills
               .map(ik => `${ik.killName} (${ik.sourceEvent})`)
               .join(', ');
           }
         }
         
-        // Create a row for each individual seat
-        allSeatRows.push({
+        allSeats.push({
           map: mapId,
           ticketType: seat.ticketType,
           section: seat.section,
           row: seat.row,
-          from: seat.seat,
-          to: seat.seat,
-          numSeats: 1,
+          seat: seat.seat,
           availability,
           state,
+          stateCategory,
           directHold,
           indirectHolds,
           directKill,
           indirectKills,
-    });
-  });
+          seatData: seat, // Store full seat data for individual rows
+        });
+      });
     } catch (error) {
       console.error(`Error fetching seats for ${mapId}:`, error);
     }
   }
 
-  // Sort rows by map, ticket type, section, row, and seat number
-  allSeatRows.sort((a, b) => {
+  // Sort seats by map, ticket type, section, row, and seat number
+  allSeats.sort((a, b) => {
     if (a.map !== b.map) return a.map.localeCompare(b.map);
     if (a.ticketType !== b.ticketType) return a.ticketType.localeCompare(b.ticketType);
     if (a.section !== b.section) return a.section.localeCompare(b.section);
     if (a.row !== b.row) return a.row.localeCompare(b.row);
-    return a.from - b.from;
+    return a.seat - b.seat;
   });
 
-  if (allSeatRows.length === 0) {
+  if (allSeats.length === 0) {
     tableContainer.innerHTML = '<p>No seats found.</p>';
     return;
   }
 
+  // Group seats into blocks
+  const blocks = [];
+  let currentBlock = null;
+  
+  for (let i = 0; i < allSeats.length; i++) {
+    const seat = allSeats[i];
+    
+    // Check if seat belongs to current block
+    if (currentBlock && 
+        currentBlock.map === seat.map &&
+        currentBlock.ticketType === seat.ticketType &&
+        currentBlock.section === seat.section &&
+        currentBlock.row === seat.row &&
+        currentBlock.directHold === seat.directHold &&
+        currentBlock.directKill === seat.directKill &&
+        currentBlock.availability === seat.availability &&
+        currentBlock.stateCategory === seat.stateCategory &&
+        currentBlock.seats[currentBlock.seats.length - 1].seat === seat.seat - 1) {
+      // Add to current block (consecutive seat)
+      currentBlock.seats.push(seat);
+    } else {
+      // Start new block
+      if (currentBlock) {
+        blocks.push(currentBlock);
+      }
+      currentBlock = {
+        map: seat.map,
+        ticketType: seat.ticketType,
+        section: seat.section,
+        row: seat.row,
+        directHold: seat.directHold,
+        directKill: seat.directKill,
+        availability: seat.availability,
+        stateCategory: seat.stateCategory,
+        seats: [seat],
+      };
+    }
+  }
+  
+  // Add last block
+  if (currentBlock) {
+    blocks.push(currentBlock);
+  }
+
+  // Generate block key for expand/collapse state
+  function getBlockKey(block) {
+    return `${block.map}-${block.ticketType}-${block.section}-${block.row}-${block.seats[0].seat}-${block.seats[block.seats.length - 1].seat}`;
+  }
+
+  // Render table
   let html = '<table style="margin: 20px auto; border-collapse: collapse;"><thead><tr>' +
   '<th style="border:1px solid #ccc;">Event</th>' +
     '<th style="border:1px solid #ccc;">Ticket Type</th>' +
@@ -1298,26 +1370,77 @@ async function updateAvailableSeatsTable() {
     '<th style="border:1px solid #ccc;">Indirect Kills</th>' +
     '</tr></thead><tbody>';
   
-  allSeatRows.forEach(row => {
-  const rowColor = row.availability === 'For Sale' ? '#111' : (row.availability === 'Not For Sale' ? 'red' : 'inherit');
-  html += `<tr style="color:${rowColor};">
-      <td style="border:1px solid #ccc;">${row.map}</td>
-      <td style="border:1px solid #ccc;">${row.ticketType}</td>
-      <td style="border:1px solid #ccc;">${row.section}</td>
-      <td style="border:1px solid #ccc;">${row.row}</td>
-      <td style="border:1px solid #ccc;">${row.from}</td>
-      <td style="border:1px solid #ccc;">${row.numSeats}</td>
-      <td style="border:1px solid #ccc;">${row.availability}</td>
-      <td style="border:1px solid #ccc;">${row.state}</td>
-      <td style="border:1px solid #ccc;">${row.directHold === '-' ? '-' : row.directHold}</td>
-      <td style="border:1px solid #ccc;">${row.indirectHolds === '-' ? '-' : row.indirectHolds}</td>
-      <td style="border:1px solid #ccc;">${row.directKill === '-' ? '-' : row.directKill}</td>
-      <td style="border:1px solid #ccc;">${row.indirectKills === '-' ? '-' : row.indirectKills}</td>
+  blocks.forEach((block, blockIndex) => {
+    const blockKey = getBlockKey(block);
+    const isExpanded = blockExpandState.get(blockKey) !== false; // Default to expanded
+    const firstSeat = block.seats[0];
+    const lastSeat = block.seats[block.seats.length - 1];
+    const seatRange = block.seats.length === 1 
+      ? firstSeat.seat.toString() 
+      : `${firstSeat.seat}-${lastSeat.seat}`;
+    
+    // Summary row
+    const rowColor = firstSeat.availability === 'For Sale' ? '#111' : (firstSeat.availability === 'Not For Sale' ? 'red' : 'inherit');
+    html += `<tr class="block-summary-row" data-block-key="${blockKey}" style="color:${rowColor};">
+      <td style="border:1px solid #ccc;">${firstSeat.map}</td>
+      <td style="border:1px solid #ccc;">${firstSeat.ticketType}</td>
+      <td style="border:1px solid #ccc;">${firstSeat.section}</td>
+      <td style="border:1px solid #ccc;">${firstSeat.row}</td>
+      <td style="border:1px solid #ccc;"><span class="expand-toggle ${isExpanded ? 'expanded' : ''}" data-block-key="${blockKey}">${seatRange}</span></td>
+      <td style="border:1px solid #ccc;">${block.seats.length}</td>
+      <td style="border:1px solid #ccc;">${firstSeat.availability}</td>
+      <td style="border:1px solid #ccc;">${firstSeat.stateCategory}</td>
+      <td style="border:1px solid #ccc;">${firstSeat.directHold || '-'}</td>
+      <td style="border:1px solid #ccc;">${firstSeat.indirectHolds === '-' ? '-' : firstSeat.indirectHolds}</td>
+      <td style="border:1px solid #ccc;">${firstSeat.directKill || '-'}</td>
+      <td style="border:1px solid #ccc;">${firstSeat.indirectKills === '-' ? '-' : firstSeat.indirectKills}</td>
       </tr>`;
+    
+    // Individual seat rows (shown when expanded)
+    block.seats.forEach(seat => {
+      const seatRowColor = seat.availability === 'For Sale' ? '#111' : (seat.availability === 'Not For Sale' ? 'red' : 'inherit');
+      html += `<tr class="block-seat-row ${isExpanded ? 'expanded' : 'collapsed'}" data-block-key="${blockKey}" style="color:${seatRowColor};">
+        <td style="border:1px solid #ccc;">${seat.map}</td>
+        <td style="border:1px solid #ccc;">${seat.ticketType}</td>
+        <td style="border:1px solid #ccc;">${seat.section}</td>
+        <td style="border:1px solid #ccc;">${seat.row}</td>
+        <td style="border:1px solid #ccc;">&nbsp;&nbsp;&nbsp;${seat.seat}</td>
+        <td style="border:1px solid #ccc;">1</td>
+        <td style="border:1px solid #ccc;">${seat.availability}</td>
+        <td style="border:1px solid #ccc;">${seat.state}</td>
+        <td style="border:1px solid #ccc;">${seat.directHold || '-'}</td>
+        <td style="border:1px solid #ccc;">${seat.indirectHolds === '-' ? '-' : seat.indirectHolds}</td>
+        <td style="border:1px solid #ccc;">${seat.directKill || '-'}</td>
+        <td style="border:1px solid #ccc;">${seat.indirectKills === '-' ? '-' : seat.indirectKills}</td>
+        </tr>`;
+    });
   });
   
   html += '</tbody></table>';
   tableContainer.innerHTML = html;
+  
+  // Add expand/collapse handlers
+  document.querySelectorAll('.expand-toggle').forEach(toggle => {
+    toggle.addEventListener('click', function() {
+      const key = this.dataset.blockKey;
+      const isCurrentlyExpanded = blockExpandState.get(key) !== false;
+      blockExpandState.set(key, !isCurrentlyExpanded);
+      
+      // Update UI
+      const rows = document.querySelectorAll(`tr[data-block-key="${key}"]`);
+      rows.forEach(row => {
+        if (row.classList.contains('block-summary-row')) {
+          const toggleEl = row.querySelector('.expand-toggle');
+          if (toggleEl) {
+            toggleEl.classList.toggle('expanded', !isCurrentlyExpanded);
+          }
+        } else if (row.classList.contains('block-seat-row')) {
+          row.classList.toggle('expanded', !isCurrentlyExpanded);
+          row.classList.toggle('collapsed', isCurrentlyExpanded);
+        }
+      });
+    });
+  });
 }
 
 // No checkbox listeners needed - showing individual seats
@@ -1344,8 +1467,337 @@ function switchView(viewName) {
   }
 }
 
+// Clean up any selection boxes
+function cleanupSelectionBoxes() {
+  // Remove all selection boxes
+  const selectionBoxes = document.querySelectorAll('#selection-box');
+  selectionBoxes.forEach(box => box.remove());
+  isSelecting = false;
+  selectionBox = null;
+}
+
+// --- Navigation ---
+function switchMainSection(sectionName) {
+  const prototypeSection = document.getElementById('prototype-section');
+  const configSection = document.getElementById('config-section');
+  
+  // Clean up any existing selection boxes
+  cleanupSelectionBoxes();
+  
+  if (sectionName === 'prototype') {
+    prototypeSection.classList.add('active');
+    configSection.classList.remove('active');
+  } else if (sectionName === 'config') {
+    prototypeSection.classList.remove('active');
+    configSection.classList.add('active');
+    // Load config data when switching to config
+    loadStateCategories();
+  }
+}
+
+// --- State Categories Config ---
+let stateCategoriesData = [];
+const ALL_STATES = ['Open', 'In Cart', 'Sold', 'Reserved', 'Resold', 'Killed', 'Resale Listed'];
+
+async function loadStateCategories() {
+  try {
+    const categories = await window.seatAPI.getStateCategories();
+    if (categories.length === 0) {
+      // Initialize default if none exist
+      await window.seatAPI.initializeDefaultStateCategory();
+      const updatedCategories = await window.seatAPI.getStateCategories();
+      stateCategoriesData = updatedCategories;
+    } else {
+      stateCategoriesData = categories;
+    }
+    renderStateCategoryCards();
+  } catch (error) {
+    console.error('Error loading state categories:', error);
+  }
+}
+
+function renderStateCategoryCards() {
+  const container = document.getElementById('state-categories-container');
+  if (!container) return;
+  
+  container.innerHTML = '';
+  
+  stateCategoriesData.forEach((category, index) => {
+    const card = createCategoryCard(category, index);
+    container.appendChild(card);
+  });
+  
+  // Add drag listeners to all state pills
+  setupDragAndDrop();
+}
+
+function createCategoryCard(category, index) {
+  const card = document.createElement('div');
+  card.className = 'state-category-card';
+  card.dataset.categoryId = category.id;
+  
+  // Category name (editable)
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.className = 'category-name-input';
+  nameInput.value = category.name;
+  nameInput.dataset.categoryId = category.id;
+  nameInput.addEventListener('blur', () => updateCategoryName(category.id, nameInput.value));
+  nameInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+      nameInput.blur();
+    }
+  });
+  
+  // State pills container
+  const pillsContainer = document.createElement('div');
+  pillsContainer.className = 'state-pills-container';
+  pillsContainer.dataset.categoryId = category.id;
+  
+  // Add state pills for this category
+  if (category.states && category.states.length > 0) {
+    category.states.forEach(stateName => {
+      const pill = createStatePill(stateName, category.id);
+      pillsContainer.appendChild(pill);
+    });
+  }
+  
+  card.appendChild(nameInput);
+  card.appendChild(pillsContainer);
+  
+  return card;
+}
+
+function createStatePill(stateName, categoryId) {
+  const pill = document.createElement('div');
+  pill.className = 'state-pill';
+  pill.draggable = true;
+  pill.textContent = stateName;
+  pill.dataset.stateName = stateName;
+  pill.dataset.categoryId = categoryId;
+  return pill;
+}
+
+function setupDragAndDrop() {
+  const pills = document.querySelectorAll('.state-pill');
+  const cards = document.querySelectorAll('.state-category-card .state-pills-container');
+  
+  pills.forEach(pill => {
+    pill.addEventListener('dragstart', handleDragStart);
+    pill.addEventListener('dragend', handleDragEnd);
+  });
+  
+  cards.forEach(card => {
+    card.addEventListener('dragover', handleDragOver);
+    card.addEventListener('drop', handleDrop);
+    card.addEventListener('dragenter', handleDragEnter);
+    card.addEventListener('dragleave', handleDragLeave);
+  });
+}
+
+let draggedPill = null;
+
+function handleDragStart(e) {
+  draggedPill = e.target;
+  e.target.style.opacity = '0.5';
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/html', e.target.innerHTML);
+}
+
+function handleDragEnd(e) {
+  e.target.style.opacity = '1';
+  document.querySelectorAll('.state-pills-container').forEach(container => {
+    container.classList.remove('drag-over');
+  });
+  draggedPill = null;
+}
+
+function handleDragOver(e) {
+  if (e.preventDefault) {
+    e.preventDefault();
+  }
+  e.dataTransfer.dropEffect = 'move';
+  return false;
+}
+
+function handleDragEnter(e) {
+  e.currentTarget.classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+  e.currentTarget.classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+  if (e.stopPropagation) {
+    e.stopPropagation();
+  }
+  
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  
+  if (draggedPill) {
+    const targetCategoryId = parseInt(e.currentTarget.dataset.categoryId);
+    const sourceCategoryId = parseInt(draggedPill.dataset.categoryId);
+    const stateName = draggedPill.dataset.stateName;
+    
+    if (targetCategoryId !== sourceCategoryId) {
+      // Move pill to new category
+      e.currentTarget.appendChild(draggedPill);
+      draggedPill.dataset.categoryId = targetCategoryId;
+      
+      // Update local data
+      updateLocalCategoryMembership(stateName, sourceCategoryId, targetCategoryId);
+    }
+  }
+  
+  return false;
+}
+
+function updateLocalCategoryMembership(stateName, fromCategoryId, toCategoryId) {
+  // Remove from source category
+  const fromCategory = stateCategoriesData.find(c => c.id === fromCategoryId);
+  if (fromCategory && fromCategory.states) {
+    fromCategory.states = fromCategory.states.filter(s => s !== stateName);
+  }
+  
+  // Add to target category
+  const toCategory = stateCategoriesData.find(c => c.id === toCategoryId);
+  if (toCategory) {
+    if (!toCategory.states) {
+      toCategory.states = [];
+    }
+    if (!toCategory.states.includes(stateName)) {
+      toCategory.states.push(stateName);
+    }
+  }
+}
+
+async function updateCategoryName(categoryId, newName) {
+  if (!newName || newName.trim() === '') {
+    // Reload to restore original name
+    loadStateCategories();
+    return;
+  }
+  
+  try {
+    await window.seatAPI.updateStateCategoryName(categoryId, newName.trim());
+    // Update local data
+    const category = stateCategoriesData.find(c => c.id === categoryId);
+    if (category) {
+      category.name = newName.trim();
+    }
+  } catch (error) {
+    console.error('Error updating category name:', error);
+    loadStateCategories(); // Reload on error
+  }
+}
+
+async function addNewCategory() {
+  try {
+    const newCategory = await window.seatAPI.createStateCategory('new state category');
+    stateCategoriesData.push({ ...newCategory, states: [] });
+    renderStateCategoryCards();
+    
+    // Focus on the new category's name input
+    const nameInput = document.querySelector(`.category-name-input[data-category-id="${newCategory.id}"]`);
+    if (nameInput) {
+      nameInput.focus();
+      nameInput.select();
+    }
+  } catch (error) {
+    console.error('Error creating category:', error);
+  }
+}
+
+async function saveStateCategories() {
+  try {
+    // Save all category memberships
+    for (const category of stateCategoriesData) {
+      await window.seatAPI.updateStateCategoryMemberships(category.id, category.states || []);
+    }
+    
+    alert('Configuration saved successfully!');
+  } catch (error) {
+    console.error('Error saving state categories:', error);
+    alert('Error saving configuration. Please try again.');
+  }
+}
+
+async function resetStateCategories() {
+  if (!confirm('This will delete all existing state categories and reset to the default "All" category with all states. Are you sure?')) {
+    return;
+  }
+  
+  try {
+    // Delete all existing categories (memberships will cascade delete)
+    for (const category of stateCategoriesData) {
+      await window.seatAPI.deleteStateCategory(category.id);
+    }
+    
+    // Initialize default category
+    await window.seatAPI.initializeDefaultStateCategory();
+    
+    // Reload categories
+    await loadStateCategories();
+    
+    alert('Configuration reset successfully!');
+  } catch (error) {
+    console.error('Error resetting state categories:', error);
+    alert('Error resetting configuration. Please try again.');
+  }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
+  // Navigation dropdown
+  const navDropdownBtn = document.getElementById('nav-dropdown-btn');
+  const navDropdownMenu = document.getElementById('nav-dropdown-menu');
+  
+  if (navDropdownBtn && navDropdownMenu) {
+    navDropdownBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      navDropdownMenu.classList.toggle('hidden');
+    });
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!navDropdownBtn.contains(e.target) && !navDropdownMenu.contains(e.target)) {
+        navDropdownMenu.classList.add('hidden');
+      }
+    });
+    
+    // Navigation items
+    document.querySelectorAll('.nav-dropdown-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        e.preventDefault();
+        const section = item.dataset.section;
+        switchMainSection(section);
+        navDropdownMenu.classList.add('hidden');
+      });
+    });
+  }
+  
+  // Config view buttons
+  const addCategoryBtn = document.getElementById('add-category-btn');
+  const resetConfigBtn = document.getElementById('reset-config-btn');
+  const saveConfigBtn = document.getElementById('save-config-btn');
+  
+  if (addCategoryBtn) {
+    addCategoryBtn.addEventListener('click', addNewCategory);
+  }
+  
+  if (resetConfigBtn) {
+    resetConfigBtn.addEventListener('click', resetStateCategories);
+  }
+  
+  if (saveConfigBtn) {
+    saveConfigBtn.addEventListener('click', saveStateCategories);
+  }
+  
+  // Initialize state categories (for list view blocking)
+  await loadStateCategories();
+  
   // Set up view toggle buttons
   document.getElementById('map-view-btn').addEventListener('click', () => switchView('map'));
   document.getElementById('list-view-btn').addEventListener('click', () => switchView('list'));
@@ -1483,6 +1935,37 @@ function onMouseDown(e) {
   if (e.target.classList.contains('seat')) return;
   const selectionUI = document.getElementById('selection-ui');
   if (selectionUI && selectionUI.contains(e.target)) return;
+  
+  // Don't activate selection in config section
+  const configSection = document.getElementById('config-section');
+  if (configSection && (configSection.contains(e.target) || configSection.classList.contains('active'))) {
+    return;
+  }
+  
+  // Don't activate selection in navigation dropdown
+  const navDropdown = document.querySelector('.nav-dropdown-container');
+  if (navDropdown && navDropdown.contains(e.target)) {
+    return;
+  }
+  
+  // Only activate in prototype section's map view
+  const prototypeSection = document.getElementById('prototype-section');
+  if (!prototypeSection || !prototypeSection.classList.contains('active')) {
+    return;
+  }
+  
+  // Only activate in map view, not list view
+  const mapView = document.getElementById('map-view');
+  if (!mapView || !mapView.classList.contains('active')) {
+    return;
+  }
+  
+  // Don't activate if clicking in list view
+  const listView = document.getElementById('list-view');
+  if (listView && listView.contains(e.target)) {
+    return;
+  }
+  
   isSelecting = true;
   startX = e.pageX;
   startY = e.pageY;
@@ -1499,14 +1982,66 @@ function onMouseDown(e) {
 
 function onMouseMove(e) {
   if (!isSelecting) return;
-  updateSelectionBox(e.pageX, e.pageY);
+  
+  // Don't update selection box if we're in config section or list view
+  const configSection = document.getElementById('config-section');
+  if (configSection && configSection.classList.contains('active')) {
+    // Clean up if we moved into config section
+    if (selectionBox) {
+      selectionBox.remove();
+      selectionBox = null;
+    }
+    isSelecting = false;
+    return;
+  }
+  
+  // Don't update selection box if we're in list view
+  const mapView = document.getElementById('map-view');
+  if (!mapView || !mapView.classList.contains('active')) {
+    // Clean up if we moved out of map view
+    if (selectionBox) {
+      selectionBox.remove();
+      selectionBox = null;
+    }
+    isSelecting = false;
+    return;
+  }
+  
+  if (selectionBox) {
+    updateSelectionBox(e.pageX, e.pageY);
+  }
 }
 
 function onMouseUp(e) {
   if (!isSelecting) return;
+  
+  // Don't process selection if we're in config section or list view
+  const configSection = document.getElementById('config-section');
+  if (configSection && configSection.classList.contains('active')) {
+    if (selectionBox) {
+      selectionBox.remove();
+      selectionBox = null;
+    }
+    isSelecting = false;
+    return;
+  }
+  
+  // Don't process selection if we're in list view
+  const mapView = document.getElementById('map-view');
+  if (!mapView || !mapView.classList.contains('active')) {
+    if (selectionBox) {
+      selectionBox.remove();
+      selectionBox = null;
+    }
+    isSelecting = false;
+    return;
+  }
+  
   isSelecting = false;
   selectSeatsInBox();
-  if (selectionBox) selectionBox.remove();
+  if (selectionBox) {
+    selectionBox.remove();
+  }
   selectionBox = null;
   updateAvailableSeatsTable();
 }
