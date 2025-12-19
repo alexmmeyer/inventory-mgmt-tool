@@ -9,9 +9,18 @@
 </head>
 
 <body>
-  <div class="main-layout">
-    <!-- Left: Inventory Management -->
-    <div class="left-panel">
+  <!-- View Toggle Buttons -->
+  <div class="view-toggle-container">
+    <div class="view-toggle-buttons">
+      <button id="map-view-btn" class="view-toggle-btn active">Map View</button>
+      <button id="list-view-btn" class="view-toggle-btn">List View</button>
+    </div>
+    <button id="reset-all-btn" class="reset-all-btn">Reset All</button>
+  </div>
+
+  <!-- Map View -->
+  <div id="map-view" class="view-container active">
+    <div class="map-view-panel">
       <h1>Inventory Management</h1>
 
       <!-- Season Map at the top -->
@@ -22,14 +31,16 @@
           <div class="seatmap" id="season"></div>
         </div>
       </div>
-  <hr>
-  <h3 style="text-align:center; margin: 16px 0;">Event Maps</h3>
+      <hr>
+      <h3 style="text-align:center; margin: 16px 0;">Event Maps</h3>
       <div class="button-bar">
+        <button id="add-to-cart">Add to Cart</button>
+        <button id="sell">Sell</button>
+        <button id="reserve">Reserve</button>
+        <button id="list">List</button>
+        <button id="resell">Resell</button>
         <button id="hold">Hold</button>
-        <button id="release-hold">Release Hold</button>
         <button id="kill">Kill</button>
-        <button id="release-kill">Release Kill</button>
-        <button id="reset">Reset</button>
       </div>
 
       <div id="palette" class="hidden" style="margin-bottom: 16px;">
@@ -66,51 +77,19 @@
           <div class="seatmap" id="event3"></div>
         </div>
       </div>
-
-      <div id="palette" class="hidden">
-        <div class="color-swatch" data-color="#FF0000" style="background:#FF0000"></div>
-        <div class="color-swatch" data-color="#00FF00" style="background:#00FF00"></div>
-        <div class="color-swatch" data-color="#0000FF" style="background:#0000FF"></div>
-        <div class="color-swatch" data-color="#FFA500" style="background:#FFA500"></div>
-      </div>
     </div>
+  </div>
 
-    <!-- Right: List View -->
-    <div class="right-panel">
-      <h1>List View</h1>
-      <div style="margin: 20px 0;">
-        <label style="margin-right: 24px;">
-          <input type="checkbox" id="separate-by-hold" checked />
-          Separate by hold
-        </label>
-        <label style="margin-right: 24px;">
-          <input type="checkbox" id="include-unavailable" />
-          <script>
-            document.addEventListener('DOMContentLoaded', function() {
-              document.getElementById('include-unavailable').addEventListener('change', function() {
-                if (window.updateAvailableSeatsTable) {
-                  window.updateAvailableSeatsTable();
-                }
-              });
-            });
-          </script>
-          Include Not For Sale inventory
-        </label>
-        <label>
-          <input type="checkbox" id="include-held-killed-elsewhere" />
-          <script>
-            document.addEventListener('DOMContentLoaded', function() {
-              document.getElementById('include-held-killed-elsewhere').addEventListener('change', function() {
-                if (window.updateAvailableSeatsTable) {
-                  window.updateAvailableSeatsTable();
-                }
-              });
-            });
-          </script>
-          Include held/killed in another event
-        </label>
+  <!-- List View -->
+  <div id="list-view" class="view-container">
+    <div class="list-view-panel">
+      <h1 class="list-view-header">List View</h1>
+      <div class="list-view-filters">
+        <!-- Filters removed - showing individual seats -->
       </div>
-      <div id="available-seats-table"></div>
+      <div class="list-view-table-container">
+        <div id="available-seats-table"></div>
+      </div>
     </div>
   </div>
 
@@ -174,6 +153,7 @@
     </div>
   </div>
 
+  <script src="js/api.js"></script>
   <script src="script.js"></script>
 </body>
 

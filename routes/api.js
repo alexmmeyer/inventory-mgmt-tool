@@ -1,0 +1,687 @@
+const express = require('express');
+const router = express.Router();
+const { db, seats, indirectHolds, indirectKills, indirectStates } = require('../db/index');
+const { eq, and, or, inArray } = require('drizzle-orm');
+const { getRelatedEvents } = require('../services/propagation');
+
+// Get all seats for an event
+router.get('/seats/:eventId', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const allSeats = await db.select().from(seats).where(eq(seats.eventId, eventId));
+    res.json(allSeats);
+  } catch (error) {
+    console.error('Error fetching seats:', error);
+    res.status(500).json({ error: 'Failed to fetch seats' });
+  }
+});
+
+// Get a single seat by ID
+router.get('/seats/id/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const seat = await db.select().from(seats).where(eq(seats.id, parseInt(id))).limit(1);
+    if (seat.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    res.json(seat[0]);
+  } catch (error) {
+    console.error('Error fetching seat:', error);
+    res.status(500).json({ error: 'Failed to fetch seat' });
+  }
+});
+
+// Get seats with indirect holds/kills/states for an event
+router.get('/seats/:eventId/with-indirect', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const allSeats = await db.select().from(seats).where(eq(seats.eventId, eventId));
+    
+    // Fetch indirect holds, kills, and states for these seats
+    const seatIds = allSeats.map(s => s.id);
+    const indirectHoldsData = seatIds.length > 0 
+      ? await db.select().from(indirectHolds).where(inArray(indirectHolds.seatId, seatIds))
+      : [];
+    const indirectKillsData = seatIds.length > 0
+      ? await db.select().from(indirectKills).where(inArray(indirectKills.seatId, seatIds))
+      : [];
+    const indirectStatesData = seatIds.length > 0
+      ? await db.select().from(indirectStates).where(inArray(indirectStates.seatId, seatIds))
+      : [];
+    
+    // Map indirect data to seats
+    const seatsWithIndirect = allSeats.map(seat => ({
+      ...seat,
+      indirectHolds: indirectHoldsData.filter(ih => ih.seatId === seat.id),
+      indirectKills: indirectKillsData.filter(ik => ik.seatId === seat.id),
+      indirectStates: indirectStatesData.filter(is => is.seatId === seat.id),
+    }));
+    
+    res.json(seatsWithIndirect);
+  } catch (error) {
+    console.error('Error fetching seats with indirect:', error);
+    console.error('Error details:', error.message, error.stack);
+    res.status(500).json({ error: 'Failed to fetch seats', details: error.message });
+  }
+});
+
+// Update not_for_sale flag for a seat
+router.put('/seats/:id/not-for-sale', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { notForSale } = req.body;
+    const seatId = parseInt(id);
+    
+    // Get the seat to check its current state
+    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    if (seatResult.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    const seat = seatResult[0];
+    
+    // Validation: Cannot mark "Not For Sale" if seat is in Sold, Resold, Reserved, In Cart, or Resale Listed state
+    const restrictedStates = ['booked', 'reserved_by_token', 'resale'];
+    if (notForSale && restrictedStates.includes(seat.seatsIoStatus)) {
+      return res.status(400).json({ error: 'Cannot mark seat as "Not For Sale" when it is in Sold, Resold, Reserved, In Cart, or Resale Listed state' });
+    }
+    
+    await db.update(seats)
+      .set({ notForSale: Boolean(notForSale) })
+      .where(eq(seats.id, seatId));
+    
+    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error updating seat:', error);
+    res.status(500).json({ error: 'Failed to update seat' });
+  }
+});
+
+// Apply direct hold to a seat
+router.put('/seats/:id/hold', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { holdName } = req.body;
+    const seatId = parseInt(id);
+    
+    // Get the seat to find its event
+    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    if (seatResult.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    const seat = seatResult[0];
+    
+    // Update direct hold
+    await db.update(seats)
+      .set({ directHoldName: holdName })
+      .where(eq(seats.id, seatId));
+    
+    // Get related events for propagation
+    const relatedEvents = getRelatedEvents(seat.eventId);
+    
+    // Find matching seats in related events (same ticket_type, section, row, seat)
+    const matchingSeats = await db.select().from(seats).where(
+      and(
+        inArray(seats.eventId, relatedEvents),
+        eq(seats.ticketType, seat.ticketType),
+        eq(seats.section, seat.section),
+        eq(seats.row, seat.row),
+        eq(seats.seat, seat.seat)
+      )
+    );
+    
+    // Remove existing indirect holds for these seats from this source
+    for (const matchingSeat of matchingSeats) {
+      await db.delete(indirectHolds).where(
+        and(
+          eq(indirectHolds.seatId, matchingSeat.id),
+          eq(indirectHolds.sourceEvent, seat.eventId)
+        )
+      );
+    }
+    
+    // Create indirect holds
+    const indirectHoldInserts = matchingSeats.map(matchingSeat => ({
+      seatId: matchingSeat.id,
+      holdName,
+      sourceEvent: seat.eventId,
+    }));
+    
+    if (indirectHoldInserts.length > 0) {
+      await db.insert(indirectHolds).values(indirectHoldInserts);
+    }
+    
+    // Return updated seat
+    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error applying hold:', error);
+    res.status(500).json({ error: 'Failed to apply hold' });
+  }
+});
+
+// Remove direct hold from a seat
+router.delete('/seats/:id/hold', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const seatId = parseInt(id);
+    
+    // Get the seat
+    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    if (seatResult.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    const seat = seatResult[0];
+    
+    // Remove direct hold
+    await db.update(seats)
+      .set({ directHoldName: null })
+      .where(eq(seats.id, seatId));
+    
+    // Get related events
+    const relatedEvents = getRelatedEvents(seat.eventId);
+    
+    // Find matching seats in related events
+    const matchingSeats = await db.select().from(seats).where(
+      and(
+        inArray(seats.eventId, relatedEvents),
+        eq(seats.ticketType, seat.ticketType),
+        eq(seats.section, seat.section),
+        eq(seats.row, seat.row),
+        eq(seats.seat, seat.seat)
+      )
+    );
+    
+    // Remove indirect holds
+    for (const matchingSeat of matchingSeats) {
+      await db.delete(indirectHolds).where(
+        and(
+          eq(indirectHolds.seatId, matchingSeat.id),
+          eq(indirectHolds.sourceEvent, seat.eventId)
+        )
+      );
+    }
+    
+    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error removing hold:', error);
+    res.status(500).json({ error: 'Failed to remove hold' });
+  }
+});
+
+// Apply direct kill to a seat
+router.put('/seats/:id/kill', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { killName } = req.body;
+    const seatId = parseInt(id);
+    
+    // Get the seat
+    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    if (seatResult.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    const seat = seatResult[0];
+    
+    // Validation: Resale Listed seats cannot be killed
+    if (seat.seatsIoStatus === 'resale') {
+      return res.status(400).json({ error: 'Resale Listed seats cannot be killed' });
+    }
+    
+    // Update direct kill and set seats_io_status to 'killed'
+    await db.update(seats)
+      .set({ 
+        killName,
+        seatsIoStatus: 'killed'
+      })
+      .where(eq(seats.id, seatId));
+    
+    // Get related events
+    const relatedEvents = getRelatedEvents(seat.eventId);
+    
+    // Find matching seats in related events
+    const matchingSeats = await db.select().from(seats).where(
+      and(
+        inArray(seats.eventId, relatedEvents),
+        eq(seats.ticketType, seat.ticketType),
+        eq(seats.section, seat.section),
+        eq(seats.row, seat.row),
+        eq(seats.seat, seat.seat)
+      )
+    );
+    
+    // Remove existing indirect kills and indirect states for these seats from this source
+    for (const matchingSeat of matchingSeats) {
+      await db.delete(indirectKills).where(
+        and(
+          eq(indirectKills.seatId, matchingSeat.id),
+          eq(indirectKills.sourceEvent, seat.eventId)
+        )
+      );
+      await db.delete(indirectStates).where(
+        and(
+          eq(indirectStates.seatId, matchingSeat.id),
+          eq(indirectStates.sourceEvent, seat.eventId),
+          eq(indirectStates.state, 'killed')
+        )
+      );
+    }
+    
+    // Create indirect kills
+    const indirectKillInserts = matchingSeats.map(matchingSeat => ({
+      seatId: matchingSeat.id,
+      killName,
+      sourceEvent: seat.eventId,
+    }));
+    
+    if (indirectKillInserts.length > 0) {
+      await db.insert(indirectKills).values(indirectKillInserts);
+    }
+    
+    // Create indirect states for killed state
+    const indirectStateInserts = matchingSeats.map(matchingSeat => ({
+      seatId: matchingSeat.id,
+      state: 'killed',
+      sourceEvent: seat.eventId,
+    }));
+    
+    if (indirectStateInserts.length > 0) {
+      await db.insert(indirectStates).values(indirectStateInserts);
+    }
+    
+    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error applying kill:', error);
+    res.status(500).json({ error: 'Failed to apply kill' });
+  }
+});
+
+// Remove direct kill from a seat
+router.delete('/seats/:id/kill', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const seatId = parseInt(id);
+    
+    // Get the seat
+    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    if (seatResult.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    const seat = seatResult[0];
+    
+    // Remove direct kill
+    await db.update(seats)
+      .set({ killName: null })
+      .where(eq(seats.id, seatId));
+    
+    // Get related events
+    const relatedEvents = getRelatedEvents(seat.eventId);
+    
+    // Find matching seats in related events
+    const matchingSeats = await db.select().from(seats).where(
+      and(
+        inArray(seats.eventId, relatedEvents),
+        eq(seats.ticketType, seat.ticketType),
+        eq(seats.section, seat.section),
+        eq(seats.row, seat.row),
+        eq(seats.seat, seat.seat)
+      )
+    );
+    
+    // Remove indirect kills
+    for (const matchingSeat of matchingSeats) {
+      await db.delete(indirectKills).where(
+        and(
+          eq(indirectKills.seatId, matchingSeat.id),
+          eq(indirectKills.sourceEvent, seat.eventId)
+        )
+      );
+    }
+    
+    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error removing kill:', error);
+    res.status(500).json({ error: 'Failed to remove kill' });
+  }
+});
+
+// Add to Cart endpoint
+router.put('/seats/:id/add-to-cart', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const seatId = parseInt(id);
+    
+    // Get the seat
+    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    if (seatResult.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    const seat = seatResult[0];
+    
+    // Validation: Cannot add to cart if notForSale is true
+    if (seat.notForSale) {
+      return res.status(400).json({ error: 'Cannot add seat to cart when it is marked as "Not For Sale"' });
+    }
+    
+    // Update seat state
+    await db.update(seats)
+      .set({ seatsIoStatus: 'reserved_by_token' })
+      .where(eq(seats.id, seatId));
+    
+    // Get related events for propagation
+    const relatedEvents = getRelatedEvents(seat.eventId);
+    
+    // Find matching seats in related events
+    const matchingSeats = await db.select().from(seats).where(
+      and(
+        inArray(seats.eventId, relatedEvents),
+        eq(seats.ticketType, seat.ticketType),
+        eq(seats.section, seat.section),
+        eq(seats.row, seat.row),
+        eq(seats.seat, seat.seat)
+      )
+    );
+    
+    // Remove existing indirect states for these seats from this source
+    for (const matchingSeat of matchingSeats) {
+      await db.delete(indirectStates).where(
+        and(
+          eq(indirectStates.seatId, matchingSeat.id),
+          eq(indirectStates.sourceEvent, seat.eventId),
+          eq(indirectStates.state, 'reserved_by_token')
+        )
+      );
+    }
+    
+    // Create indirect states
+    const indirectStateInserts = matchingSeats.map(matchingSeat => ({
+      seatId: matchingSeat.id,
+      state: 'reserved_by_token',
+      sourceEvent: seat.eventId,
+    }));
+    
+    if (indirectStateInserts.length > 0) {
+      await db.insert(indirectStates).values(indirectStateInserts);
+    }
+    
+    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error adding seat to cart:', error);
+    res.status(500).json({ error: 'Failed to add seat to cart' });
+  }
+});
+
+// Sell endpoint
+router.put('/seats/:id/sell', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const seatId = parseInt(id);
+    
+    // Get the seat
+    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    if (seatResult.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    const seat = seatResult[0];
+    
+    // Validation: Cannot sell if notForSale is true
+    if (seat.notForSale) {
+      return res.status(400).json({ error: 'Cannot sell seat when it is marked as "Not For Sale"' });
+    }
+    
+    // Update seat state
+    await db.update(seats)
+      .set({ 
+        seatsIoStatus: 'booked',
+        isResale: false,
+        isReservation: false
+      })
+      .where(eq(seats.id, seatId));
+    
+    // Get related events for propagation
+    const relatedEvents = getRelatedEvents(seat.eventId);
+    
+    // Find matching seats in related events
+    const matchingSeats = await db.select().from(seats).where(
+      and(
+        inArray(seats.eventId, relatedEvents),
+        eq(seats.ticketType, seat.ticketType),
+        eq(seats.section, seat.section),
+        eq(seats.row, seat.row),
+        eq(seats.seat, seat.seat)
+      )
+    );
+    
+    // Remove existing indirect states for these seats from this source
+    for (const matchingSeat of matchingSeats) {
+      await db.delete(indirectStates).where(
+        and(
+          eq(indirectStates.seatId, matchingSeat.id),
+          eq(indirectStates.sourceEvent, seat.eventId),
+          eq(indirectStates.state, 'booked')
+        )
+      );
+    }
+    
+    // Create indirect states
+    const indirectStateInserts = matchingSeats.map(matchingSeat => ({
+      seatId: matchingSeat.id,
+      state: 'booked',
+      sourceEvent: seat.eventId,
+    }));
+    
+    if (indirectStateInserts.length > 0) {
+      await db.insert(indirectStates).values(indirectStateInserts);
+    }
+    
+    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error selling seat:', error);
+    res.status(500).json({ error: 'Failed to sell seat' });
+  }
+});
+
+// Reserve endpoint
+router.put('/seats/:id/reserve', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const seatId = parseInt(id);
+    
+    // Get the seat
+    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    if (seatResult.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    const seat = seatResult[0];
+    
+    // Validation: Cannot reserve if notForSale is true
+    if (seat.notForSale) {
+      return res.status(400).json({ error: 'Cannot reserve seat when it is marked as "Not For Sale"' });
+    }
+    
+    // Update seat state
+    await db.update(seats)
+      .set({ 
+        seatsIoStatus: 'booked',
+        isReservation: true
+      })
+      .where(eq(seats.id, seatId));
+    
+    // Get related events for propagation
+    const relatedEvents = getRelatedEvents(seat.eventId);
+    
+    // Find matching seats in related events
+    const matchingSeats = await db.select().from(seats).where(
+      and(
+        inArray(seats.eventId, relatedEvents),
+        eq(seats.ticketType, seat.ticketType),
+        eq(seats.section, seat.section),
+        eq(seats.row, seat.row),
+        eq(seats.seat, seat.seat)
+      )
+    );
+    
+    // Remove existing indirect states for these seats from this source
+    for (const matchingSeat of matchingSeats) {
+      await db.delete(indirectStates).where(
+        and(
+          eq(indirectStates.seatId, matchingSeat.id),
+          eq(indirectStates.sourceEvent, seat.eventId),
+          eq(indirectStates.state, 'booked')
+        )
+      );
+    }
+    
+    // Create indirect states
+    const indirectStateInserts = matchingSeats.map(matchingSeat => ({
+      seatId: matchingSeat.id,
+      state: 'booked',
+      sourceEvent: seat.eventId,
+    }));
+    
+    if (indirectStateInserts.length > 0) {
+      await db.insert(indirectStates).values(indirectStateInserts);
+    }
+    
+    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error reserving seat:', error);
+    res.status(500).json({ error: 'Failed to reserve seat' });
+  }
+});
+
+// List endpoint (for resale)
+router.put('/seats/:id/list', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const seatId = parseInt(id);
+    
+    // Get the seat
+    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    if (seatResult.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    const seat = seatResult[0];
+    
+    // Validation: Must be in Sold state (booked, not resale, not reservation) and not notForSale
+    if (seat.notForSale) {
+      return res.status(400).json({ error: 'Cannot list seat when it is marked as "Not For Sale"' });
+    }
+    if (seat.seatsIoStatus !== 'booked' || seat.isResale || seat.isReservation) {
+      return res.status(400).json({ error: 'Can only list seats that are in Sold state' });
+    }
+    
+    // Update seat state (NO propagation)
+    await db.update(seats)
+      .set({ 
+        seatsIoStatus: 'resale',
+        isResale: true
+      })
+      .where(eq(seats.id, seatId));
+    
+    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error listing seat:', error);
+    res.status(500).json({ error: 'Failed to list seat' });
+  }
+});
+
+// Resell endpoint
+router.put('/seats/:id/resell', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const seatId = parseInt(id);
+    
+    // Get the seat
+    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    if (seatResult.length === 0) {
+      return res.status(404).json({ error: 'Seat not found' });
+    }
+    const seat = seatResult[0];
+    
+    // Validation: Must be in Resale Listed state and not notForSale
+    if (seat.notForSale) {
+      return res.status(400).json({ error: 'Cannot resell seat when it is marked as "Not For Sale"' });
+    }
+    if (seat.seatsIoStatus !== 'resale') {
+      return res.status(400).json({ error: 'Can only resell seats that are in Resale Listed state' });
+    }
+    
+    // Update seat state (NO propagation)
+    await db.update(seats)
+      .set({ 
+        seatsIoStatus: 'booked',
+        isResale: true
+      })
+      .where(eq(seats.id, seatId));
+    
+    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
+    res.json(updated[0]);
+  } catch (error) {
+    console.error('Error reselling seat:', error);
+    res.status(500).json({ error: 'Failed to resell seat' });
+  }
+});
+
+// Batch update seats (for not_for_sale flags)
+router.post('/seats/batch-update', async (req, res) => {
+  try {
+    const { updates } = req.body; // Array of {id, notForSale}
+    
+    if (!Array.isArray(updates)) {
+      return res.status(400).json({ error: 'Updates must be an array' });
+    }
+    
+    // Update each seat
+    for (const update of updates) {
+      await db.update(seats)
+        .set({ notForSale: Boolean(update.notForSale) })
+        .where(eq(seats.id, parseInt(update.id)));
+    }
+    
+    // Fetch updated seats
+    const ids = updates.map(u => parseInt(u.id));
+    const updatedSeats = await db.select().from(seats).where(inArray(seats.id, ids));
+    
+    res.json(updatedSeats);
+  } catch (error) {
+    console.error('Error batch updating seats:', error);
+    res.status(500).json({ error: 'Failed to batch update seats' });
+  }
+});
+
+// Reset all seats (clear holds, kills, set not_for_sale to false, reset states)
+router.post('/seats/reset-all', async (req, res) => {
+  try {
+    // Clear all direct holds, kills, and reset states
+    await db.update(seats)
+      .set({
+        directHoldName: null,
+        killName: null,
+        notForSale: false,
+        seatsIoStatus: 'free',
+        isResale: false,
+        isReservation: false,
+      });
+    
+    // Clear all indirect holds, kills, and states
+    await db.delete(indirectHolds);
+    await db.delete(indirectKills);
+    await db.delete(indirectStates);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error resetting seats:', error);
+    res.status(500).json({ error: 'Failed to reset seats' });
+  }
+});
+
+module.exports = router;
+
