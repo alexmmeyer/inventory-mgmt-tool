@@ -34,20 +34,10 @@ function getRelatedEvents(eventId) {
     });
   }
   
-  // If it's a child (event), add all parents
+  // If it's a child (event), only add its own parent(s)
+  // Do NOT propagate to siblings or other parents
   if (childMaps[eventId]) {
     childMaps[eventId].forEach(parent => related.add(parent));
-    
-    // Also add siblings (other children of the same parents)
-    childMaps[eventId].forEach(parent => {
-      if (parentMaps[parent]) {
-        parentMaps[parent].forEach(sibling => {
-          if (sibling !== eventId) {
-            related.add(sibling);
-          }
-        });
-      }
-    });
   }
   
   return Array.from(related);

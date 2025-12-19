@@ -631,28 +631,29 @@ async function releaseKill() {
 
 function getRelatedEvents(eventId) {
   const related = new Set();
+  
+  // If it's a parent (package), add all children
   if (parentMaps[eventId]) {
     parentMaps[eventId].forEach(child => related.add(child));
-      Object.keys(parentMaps).forEach(otherParent => {
+    
+    // Also add other parents that share the same children
+    Object.keys(parentMaps).forEach(otherParent => {
       if (otherParent !== eventId) {
         parentMaps[eventId].forEach(child => {
           if (parentMaps[otherParent]?.includes(child)) {
             related.add(otherParent);
           }
         });
-        }
-      });
-    }
+      }
+    });
+  }
+  
+  // If it's a child (event), only add its own parent(s)
+  // Do NOT propagate to siblings or other parents
   if (childMaps[eventId]) {
     childMaps[eventId].forEach(parent => related.add(parent));
-    childMaps[eventId].forEach(parent => {
-      if (parentMaps[parent]) {
-        parentMaps[parent].forEach(sibling => {
-          if (sibling !== eventId) related.add(sibling);
-      });
-    }
-  });
   }
+  
   return Array.from(related);
 }
 
@@ -1201,27 +1202,49 @@ async function updateAvailableSeatsTable() {
       const seats = await window.seatAPI.fetchSeatsForEvent(mapId);
       
       seats.forEach(seat => {
-      let hold = '-';
-      let holdSource = '';
-      let kill = '-';
-      let killSource = '';
         const availability = seat.notForSale ? 'Not For Sale' : 'For Sale';
         const state = getSeatState(seat);
       
-      // Check for holds
+        // Process direct hold
+        let directHold = '-';
         if (seat.directHoldName) {
-          hold = seat.directHoldName;
-        } else if (seat.indirectHolds && seat.indirectHolds.length > 0) {
-          hold = seat.indirectHolds[0].holdName;
-          holdSource = seat.indirectHolds[0].sourceEvent;
-      }
+          directHold = seat.directHoldName;
+        }
       
-      // Check for kills
+        // Process indirect holds
+        let indirectHolds = '-';
+        if (seat.indirectHolds && seat.indirectHolds.length > 0) {
+          if (seat.indirectHolds.length === 1) {
+            // Single indirect hold: show "HoldName (SourceEvent)"
+            const indirectHold = seat.indirectHolds[0];
+            indirectHolds = `${indirectHold.holdName} (${indirectHold.sourceEvent})`;
+          } else {
+            // Multiple indirect holds: show comma-separated list
+            indirectHolds = seat.indirectHolds
+              .map(ih => `${ih.holdName} (${ih.sourceEvent})`)
+              .join(', ');
+          }
+        }
+      
+        // Process direct kill
+        let directKill = '-';
         if (seat.killName) {
-          kill = seat.killName;
-        } else if (seat.indirectKills && seat.indirectKills.length > 0) {
-          kill = seat.indirectKills[0].killName;
-          killSource = seat.indirectKills[0].sourceEvent;
+          directKill = seat.killName;
+        }
+      
+        // Process indirect kills
+        let indirectKills = '-';
+        if (seat.indirectKills && seat.indirectKills.length > 0) {
+          if (seat.indirectKills.length === 1) {
+            // Single indirect kill: show "KillName (SourceEvent)"
+            const indirectKill = seat.indirectKills[0];
+            indirectKills = `${indirectKill.killName} (${indirectKill.sourceEvent})`;
+          } else {
+            // Multiple indirect kills: show comma-separated list
+            indirectKills = seat.indirectKills
+              .map(ik => `${ik.killName} (${ik.sourceEvent})`)
+              .join(', ');
+          }
         }
         
         // Create a row for each individual seat
@@ -1235,10 +1258,10 @@ async function updateAvailableSeatsTable() {
           numSeats: 1,
           availability,
           state,
-          hold,
-          holdSource,
-          kill,
-          killSource,
+          directHold,
+          indirectHolds,
+          directKill,
+          indirectKills,
     });
   });
     } catch (error) {
@@ -1269,10 +1292,10 @@ async function updateAvailableSeatsTable() {
   '<th style="border:1px solid #ccc;">Num seats</th>' +
     '<th style="border:1px solid #ccc;">Availability</th>' +
     '<th style="border:1px solid #ccc;">State</th>' +
-    '<th style="border:1px solid #ccc;">Hold</th>' +
-    '<th style="border:1px solid #ccc;">Hold Source</th>' +
-    '<th style="border:1px solid #ccc;">Kill</th>' +
-    '<th style="border:1px solid #ccc;">Kill Source</th>' +
+    '<th style="border:1px solid #ccc;">Direct Hold</th>' +
+    '<th style="border:1px solid #ccc;">Indirect Holds</th>' +
+    '<th style="border:1px solid #ccc;">Direct Kill</th>' +
+    '<th style="border:1px solid #ccc;">Indirect Kills</th>' +
     '</tr></thead><tbody>';
   
   allSeatRows.forEach(row => {
@@ -1286,10 +1309,10 @@ async function updateAvailableSeatsTable() {
       <td style="border:1px solid #ccc;">${row.numSeats}</td>
       <td style="border:1px solid #ccc;">${row.availability}</td>
       <td style="border:1px solid #ccc;">${row.state}</td>
-      <td style="border:1px solid #ccc;">${row.hold === '-' ? '-' : row.hold}</td>
-      <td style="border:1px solid #ccc;">${row.holdSource || ''}</td>
-      <td style="border:1px solid #ccc;">${row.kill === '-' ? '-' : row.kill}</td>
-      <td style="border:1px solid #ccc;">${row.killSource || ''}</td>
+      <td style="border:1px solid #ccc;">${row.directHold === '-' ? '-' : row.directHold}</td>
+      <td style="border:1px solid #ccc;">${row.indirectHolds === '-' ? '-' : row.indirectHolds}</td>
+      <td style="border:1px solid #ccc;">${row.directKill === '-' ? '-' : row.directKill}</td>
+      <td style="border:1px solid #ccc;">${row.indirectKills === '-' ? '-' : row.indirectKills}</td>
       </tr>`;
   });
   
