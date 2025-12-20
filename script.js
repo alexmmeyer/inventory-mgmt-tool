@@ -1354,25 +1354,26 @@ async function updateAvailableSeatsTable() {
     return `${block.map}-${block.ticketType}-${block.section}-${block.row}-${block.seats[0].seat}-${block.seats[block.seats.length - 1].seat}`;
   }
 
-  // Render table
-  let html = '<table style="margin: 20px auto; border-collapse: collapse;"><thead><tr>' +
-  '<th style="border:1px solid #ccc;">Event</th>' +
-    '<th style="border:1px solid #ccc;">Ticket Type</th>' +
-    '<th style="border:1px solid #ccc;">Section</th>' +
-  '<th style="border:1px solid #ccc;">Row</th>' +
-    '<th style="border:1px solid #ccc;">Seat</th>' +
-  '<th style="border:1px solid #ccc;">Num seats</th>' +
-    '<th style="border:1px solid #ccc;">Availability</th>' +
-    '<th style="border:1px solid #ccc;">State</th>' +
-    '<th style="border:1px solid #ccc;">Direct Hold</th>' +
-    '<th style="border:1px solid #ccc;">Indirect Holds</th>' +
-    '<th style="border:1px solid #ccc;">Direct Kill</th>' +
-    '<th style="border:1px solid #ccc;">Indirect Kills</th>' +
+  // Render table (using border-collapse: separate for sticky thead to work)
+  let html = '<table style="margin: 0; border-collapse: separate; border-spacing: 0; width: 100%;"><thead><tr>' +
+  '<th style="border:0.5px solid #e1e4e8;">Event</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">Ticket Type</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">Section</th>' +
+  '<th style="border:0.5px solid #e1e4e8;">Row</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">Seat</th>' +
+  '<th style="border:0.5px solid #e1e4e8;">Num seats</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">Availability</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">State</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">Direct Hold</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">Indirect Holds</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">Direct Kill</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">Indirect Kills</th>' +
+    '<th style="border:0.5px solid #e1e4e8; width: 40px;"></th>' +
     '</tr></thead><tbody>';
   
   blocks.forEach((block, blockIndex) => {
     const blockKey = getBlockKey(block);
-    const isExpanded = blockExpandState.get(blockKey) !== false; // Default to expanded
+    const isExpanded = blockExpandState.get(blockKey) === true; // Default to collapsed
     const firstSeat = block.seats[0];
     const lastSeat = block.seats[block.seats.length - 1];
     const seatRange = block.seats.length === 1 
@@ -1382,36 +1383,38 @@ async function updateAvailableSeatsTable() {
     // Summary row
     const rowColor = firstSeat.availability === 'For Sale' ? '#111' : (firstSeat.availability === 'Not For Sale' ? 'red' : 'inherit');
     html += `<tr class="block-summary-row" data-block-key="${blockKey}" style="color:${rowColor};">
-      <td style="border:1px solid #ccc;">${firstSeat.map}</td>
-      <td style="border:1px solid #ccc;">${firstSeat.ticketType}</td>
-      <td style="border:1px solid #ccc;">${firstSeat.section}</td>
-      <td style="border:1px solid #ccc;">${firstSeat.row}</td>
-      <td style="border:1px solid #ccc;"><span class="expand-toggle ${isExpanded ? 'expanded' : ''}" data-block-key="${blockKey}">${seatRange}</span></td>
-      <td style="border:1px solid #ccc;">${block.seats.length}</td>
-      <td style="border:1px solid #ccc;">${firstSeat.availability}</td>
-      <td style="border:1px solid #ccc;">${firstSeat.stateCategory}</td>
-      <td style="border:1px solid #ccc;">${firstSeat.directHold || '-'}</td>
-      <td style="border:1px solid #ccc;">${firstSeat.indirectHolds === '-' ? '-' : firstSeat.indirectHolds}</td>
-      <td style="border:1px solid #ccc;">${firstSeat.directKill || '-'}</td>
-      <td style="border:1px solid #ccc;">${firstSeat.indirectKills === '-' ? '-' : firstSeat.indirectKills}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.map}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.ticketType}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.section}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.row}</td>
+      <td style="border:0.5px solid #e1e4e8;">${seatRange}</td>
+      <td style="border:0.5px solid #e1e4e8;">${block.seats.length}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.availability}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.stateCategory}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.directHold || '-'}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.indirectHolds === '-' ? '-' : firstSeat.indirectHolds}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.directKill || '-'}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.indirectKills === '-' ? '-' : firstSeat.indirectKills}</td>
+      <td style="border:0.5px solid #e1e4e8; text-align: center;"><span class="expand-toggle ${isExpanded ? 'expanded' : ''}" data-block-key="${blockKey}"></span></td>
       </tr>`;
     
     // Individual seat rows (shown when expanded)
     block.seats.forEach(seat => {
       const seatRowColor = seat.availability === 'For Sale' ? '#111' : (seat.availability === 'Not For Sale' ? 'red' : 'inherit');
       html += `<tr class="block-seat-row ${isExpanded ? 'expanded' : 'collapsed'}" data-block-key="${blockKey}" style="color:${seatRowColor};">
-        <td style="border:1px solid #ccc;">${seat.map}</td>
-        <td style="border:1px solid #ccc;">${seat.ticketType}</td>
-        <td style="border:1px solid #ccc;">${seat.section}</td>
-        <td style="border:1px solid #ccc;">${seat.row}</td>
-        <td style="border:1px solid #ccc;">&nbsp;&nbsp;&nbsp;${seat.seat}</td>
-        <td style="border:1px solid #ccc;">1</td>
-        <td style="border:1px solid #ccc;">${seat.availability}</td>
-        <td style="border:1px solid #ccc;">${seat.state}</td>
-        <td style="border:1px solid #ccc;">${seat.directHold || '-'}</td>
-        <td style="border:1px solid #ccc;">${seat.indirectHolds === '-' ? '-' : seat.indirectHolds}</td>
-        <td style="border:1px solid #ccc;">${seat.directKill || '-'}</td>
-        <td style="border:1px solid #ccc;">${seat.indirectKills === '-' ? '-' : seat.indirectKills}</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.map}</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.ticketType}</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.section}</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.row}</td>
+        <td style="border:0.5px solid #e1e4e8;">&nbsp;&nbsp;&nbsp;${seat.seat}</td>
+        <td style="border:0.5px solid #e1e4e8;">1</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.availability}</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.state}</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.directHold || '-'}</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.indirectHolds === '-' ? '-' : seat.indirectHolds}</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.directKill || '-'}</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.indirectKills === '-' ? '-' : seat.indirectKills}</td>
+        <td style="border:0.5px solid #e1e4e8;"></td>
         </tr>`;
     });
   });
@@ -1423,7 +1426,7 @@ async function updateAvailableSeatsTable() {
   document.querySelectorAll('.expand-toggle').forEach(toggle => {
     toggle.addEventListener('click', function() {
       const key = this.dataset.blockKey;
-      const isCurrentlyExpanded = blockExpandState.get(key) !== false;
+      const isCurrentlyExpanded = blockExpandState.get(key) === true;
       blockExpandState.set(key, !isCurrentlyExpanded);
       
       // Update UI
@@ -1750,7 +1753,7 @@ async function resetStateCategories() {
 
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
-  // Navigation dropdown
+  // Navigation dropdown (prototype section)
   const navDropdownBtn = document.getElementById('nav-dropdown-btn');
   const navDropdownMenu = document.getElementById('nav-dropdown-menu');
   
@@ -1766,17 +1769,37 @@ document.addEventListener('DOMContentLoaded', async () => {
         navDropdownMenu.classList.add('hidden');
       }
     });
+  }
+  
+  // Navigation dropdown (config section)
+  const navDropdownBtnConfig = document.getElementById('nav-dropdown-btn-config');
+  const navDropdownMenuConfig = document.getElementById('nav-dropdown-menu-config');
+  
+  if (navDropdownBtnConfig && navDropdownMenuConfig) {
+    navDropdownBtnConfig.addEventListener('click', (e) => {
+      e.stopPropagation();
+      navDropdownMenuConfig.classList.toggle('hidden');
+    });
     
-    // Navigation items
-    document.querySelectorAll('.nav-dropdown-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        e.preventDefault();
-        const section = item.dataset.section;
-        switchMainSection(section);
-        navDropdownMenu.classList.add('hidden');
-      });
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!navDropdownBtnConfig.contains(e.target) && !navDropdownMenuConfig.contains(e.target)) {
+        navDropdownMenuConfig.classList.add('hidden');
+      }
     });
   }
+  
+  // Navigation items (shared event listeners for both dropdowns)
+  document.querySelectorAll('.nav-dropdown-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      const section = item.dataset.section;
+      switchMainSection(section);
+      // Close all dropdowns
+      if (navDropdownMenu) navDropdownMenu.classList.add('hidden');
+      if (navDropdownMenuConfig) navDropdownMenuConfig.classList.add('hidden');
+    });
+  });
   
   // Config view buttons
   const addCategoryBtn = document.getElementById('add-category-btn');

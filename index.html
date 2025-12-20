@@ -9,29 +9,31 @@
 </head>
 
 <body>
-  <!-- Navigation Dropdown -->
-  <div class="nav-dropdown-container">
-    <button id="nav-dropdown-btn" class="nav-dropdown-btn">☰ Menu</button>
-    <div id="nav-dropdown-menu" class="nav-dropdown-menu hidden">
-      <div class="nav-dropdown-section">
-        <div class="nav-dropdown-label">Config</div>
-        <a href="#" class="nav-dropdown-item" data-section="config">State Categories</a>
-      </div>
-      <div class="nav-dropdown-section">
-        <div class="nav-dropdown-label">Prototype</div>
-        <a href="#" class="nav-dropdown-item" data-section="prototype">Inventory Management</a>
-      </div>
-    </div>
-  </div>
-
   <!-- Prototype Section -->
   <div id="prototype-section" class="main-section active">
-    <!-- View Toggle Buttons -->
+    <!-- Combined Header: Navigation and View Toggle -->
     <div class="view-toggle-container">
+      <!-- Navigation Dropdown -->
+      <div class="nav-dropdown-container">
+        <button id="nav-dropdown-btn" class="nav-dropdown-btn">☰ Menu</button>
+        <div id="nav-dropdown-menu" class="nav-dropdown-menu hidden">
+          <div class="nav-dropdown-section">
+            <div class="nav-dropdown-label">Config</div>
+            <a href="#" class="nav-dropdown-item" data-section="config">State Categories</a>
+          </div>
+          <div class="nav-dropdown-section">
+            <div class="nav-dropdown-label">Prototype</div>
+            <a href="#" class="nav-dropdown-item" data-section="prototype">Inventory Management</a>
+          </div>
+        </div>
+      </div>
+      
+      <!-- View Toggle Buttons -->
       <div class="view-toggle-buttons">
         <button id="map-view-btn" class="view-toggle-btn active">Map View</button>
         <button id="list-view-btn" class="view-toggle-btn">List View</button>
       </div>
+      
       <button id="reset-all-btn" class="reset-all-btn">Reset All</button>
     </div>
 
@@ -100,7 +102,6 @@
     <!-- List View -->
     <div id="list-view" class="view-container">
     <div class="list-view-panel">
-      <h1 class="list-view-header">List View</h1>
       <div class="list-view-filters">
         <!-- Filters removed - showing individual seats -->
       </div>
@@ -173,6 +174,29 @@
 
   <!-- Config Section -->
   <div id="config-section" class="main-section">
+    <!-- Combined Header: Navigation and View Toggle -->
+    <div class="view-toggle-container">
+      <!-- Navigation Dropdown -->
+      <div class="nav-dropdown-container">
+        <button id="nav-dropdown-btn-config" class="nav-dropdown-btn">☰ Menu</button>
+        <div id="nav-dropdown-menu-config" class="nav-dropdown-menu hidden">
+          <div class="nav-dropdown-section">
+            <div class="nav-dropdown-label">Config</div>
+            <a href="#" class="nav-dropdown-item" data-section="config">State Categories</a>
+          </div>
+          <div class="nav-dropdown-section">
+            <div class="nav-dropdown-label">Prototype</div>
+            <a href="#" class="nav-dropdown-item" data-section="prototype">Inventory Management</a>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Spacer to match prototype header layout -->
+      <div class="view-toggle-buttons"></div>
+      
+      <div style="width: 120px;"></div>
+    </div>
+    
     <div class="config-view-panel">
       <h1>State Category Configuration</h1>
       
