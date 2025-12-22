@@ -20,6 +20,21 @@ let selectedSeats = new Set(); // Store seat IDs (database IDs)
 let hasUnsavedChanges = false;
 let currentAction = null; // 'hold' or 'kill'
 
+// List view filters state (persists during navigation, resets on page refresh or reset all)
+let listViewFilters = {
+  events: [],
+  categories: [],
+  seatingTypes: [],
+  rowLabels: [],
+  sections: [],
+  seats: [],
+  availability: [],
+  directHolds: [],
+  directKills: [],
+  numSeatsFrom: null,
+  numSeatsTo: null
+};
+
 // Helper to get hold color from name
 function getHoldColor(holdName) {
   const colors = {
@@ -137,6 +152,17 @@ function createSeatElement(seat, eventId) {
   
   // Add click handler
   seatEl.addEventListener('click', (e) => {
+    // Only allow seat selection in map view of prototype section
+    const prototypeSection = document.getElementById('prototype-section');
+    if (!prototypeSection || !prototypeSection.classList.contains('active')) {
+      return;
+    }
+    
+    const mapView = document.getElementById('map-view');
+    if (!mapView || !mapView.classList.contains('active')) {
+      return;
+    }
+    
       if (isSelecting) return;
     toggleSeatSelection(seatEl);
     if (eventId === 'season') {
@@ -663,10 +689,10 @@ function getRelatedEvents(eventId) {
             related.add(otherParent);
           }
         });
+          }
+        });
       }
-    });
-  }
-  
+
   // If it's a child (event), only add its own parent(s)
   // Do NOT propagate to siblings or other parents
   if (childMaps[eventId]) {
@@ -1041,6 +1067,23 @@ function updateButtonStates() {
   if (killBtn) killBtn.disabled = anyNotForSale || anyResaleListed;
 }
 
+function resetListViewFilters() {
+  listViewFilters = {
+    events: [],
+    categories: [],
+    seatingTypes: [],
+    rowLabels: [],
+    sections: [],
+    seats: [],
+    availability: [],
+    directHolds: [],
+    directKills: [],
+    numSeatsFrom: null,
+    numSeatsTo: null
+  };
+  // Filters UI will be re-rendered when updateAvailableSeatsTable is called
+}
+
 async function resetAll() {
   await window.seatAPI.resetAllSeats();
   
@@ -1050,6 +1093,466 @@ async function resetAll() {
   }
   
   clearSelection();
+  resetListViewFilters();
+}
+
+// Extract unique filter options from all seats
+function extractFilterOptions(allSeats) {
+  const options = {
+    events: new Set(),
+    categories: new Set(),
+    seatingTypes: new Set(),
+    rowLabels: new Set(),
+    sections: new Set(),
+    seats: new Set(),
+    availability: new Set(),
+    directHolds: new Set(),
+    directKills: new Set(),
+  };
+  
+  allSeats.forEach(seat => {
+    if (seat.map) options.events.add(seat.map);
+    if (seat.ticketType) options.categories.add(seat.ticketType);
+    if (seat.seatingType) options.seatingTypes.add(seat.seatingType);
+    if (seat.row) options.rowLabels.add(seat.row);
+    if (seat.section) options.sections.add(seat.section);
+    if (seat.seat) options.seats.add(seat.seat);
+    if (seat.availability) options.availability.add(seat.availability);
+    if (seat.directHold) options.directHolds.add(seat.directHold);
+    if (seat.directKill) options.directKills.add(seat.directKill);
+  });
+  
+  // Convert Sets to sorted arrays
+  return {
+    events: Array.from(options.events).sort(),
+    categories: Array.from(options.categories).sort(),
+    seatingTypes: ['Row', 'Table', 'Booth'], // Always show all three options
+    rowLabels: Array.from(options.rowLabels).sort(),
+    sections: Array.from(options.sections).sort(),
+    seats: Array.from(options.seats).sort((a, b) => a - b),
+    availability: Array.from(options.availability).sort(),
+    directHolds: Array.from(options.directHolds).sort(),
+    directKills: Array.from(options.directKills).sort(),
+  };
+}
+
+// Apply filters to seats array
+function applyFiltersToSeats(seats) {
+  let filtered = seats;
+  
+  // Event filter
+  if (listViewFilters.events.length > 0) {
+    filtered = filtered.filter(seat => listViewFilters.events.includes(seat.map));
+  }
+  
+  // Category filter
+  if (listViewFilters.categories.length > 0) {
+    filtered = filtered.filter(seat => listViewFilters.categories.includes(seat.ticketType));
+  }
+  
+  // Seating Type filter
+  if (listViewFilters.seatingTypes.length > 0) {
+    filtered = filtered.filter(seat => listViewFilters.seatingTypes.includes(seat.seatingType));
+  }
+  
+  // Row/Table/Booth Label filter
+  if (listViewFilters.rowLabels.length > 0) {
+    filtered = filtered.filter(seat => listViewFilters.rowLabels.includes(seat.row));
+  }
+  
+  // Section filter
+  if (listViewFilters.sections.length > 0) {
+    filtered = filtered.filter(seat => listViewFilters.sections.includes(seat.section));
+  }
+  
+  // Seat filter
+  if (listViewFilters.seats.length > 0) {
+    filtered = filtered.filter(seat => listViewFilters.seats.includes(seat.seat));
+  }
+  
+  // Availability filter
+  if (listViewFilters.availability.length > 0) {
+    filtered = filtered.filter(seat => listViewFilters.availability.includes(seat.availability));
+  }
+  
+  // Direct Hold filter
+  if (listViewFilters.directHolds.length > 0) {
+    filtered = filtered.filter(seat => {
+      const hold = seat.directHold || null;
+      return listViewFilters.directHolds.includes(hold);
+    });
+  }
+  
+  // Direct Kill filter
+  if (listViewFilters.directKills.length > 0) {
+    filtered = filtered.filter(seat => {
+      const kill = seat.directKill || null;
+      return listViewFilters.directKills.includes(kill);
+    });
+  }
+  
+  return filtered;
+}
+
+// Render filter UI dynamically
+function renderListViewFilters(allSeats) {
+  const filterContainer = document.querySelector('.list-view-filters');
+  if (!filterContainer) return;
+  
+  const options = extractFilterOptions(allSeats);
+  
+  // Helper to create checkbox group
+  function createCheckboxGroup(label, filterKey, values, currentSelections) {
+    const group = document.createElement('div');
+    group.className = 'filter-group';
+    
+    const labelEl = document.createElement('div');
+    labelEl.className = 'filter-label';
+    labelEl.textContent = label;
+    group.appendChild(labelEl);
+    
+    const checkboxContainer = document.createElement('div');
+    checkboxContainer.className = 'filter-checkboxes';
+    
+    values.forEach(value => {
+      const checkboxWrapper = document.createElement('div');
+      checkboxWrapper.className = 'filter-checkbox-wrapper';
+      
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.id = `filter-${filterKey}-${value}`;
+      checkbox.value = value;
+      checkbox.checked = currentSelections.includes(value);
+      
+      const checkboxLabel = document.createElement('label');
+      checkboxLabel.htmlFor = checkbox.id;
+      checkboxLabel.textContent = value;
+      
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!listViewFilters[filterKey].includes(value)) {
+            listViewFilters[filterKey].push(value);
+          }
+        } else {
+          listViewFilters[filterKey] = listViewFilters[filterKey].filter(v => v !== value);
+        }
+        updateAvailableSeatsTable();
+      });
+      
+      checkboxWrapper.appendChild(checkbox);
+      checkboxWrapper.appendChild(checkboxLabel);
+      checkboxContainer.appendChild(checkboxWrapper);
+    });
+    
+    group.appendChild(checkboxContainer);
+    return group;
+  }
+  
+  // Create filter HTML
+  let html = '<div class="filter-panel">';
+  
+  // Event filter
+  html += '<div class="filter-group">';
+  html += '<div class="filter-label">Event</div>';
+  html += '<div class="filter-checkboxes">';
+  options.events.forEach(event => {
+    const checked = listViewFilters.events.includes(event) ? 'checked' : '';
+    html += `<div class="filter-checkbox-wrapper">
+      <input type="checkbox" id="filter-events-${event}" value="${event}" ${checked}>
+      <label for="filter-events-${event}">${event}</label>
+    </div>`;
+  });
+  html += '</div></div>';
+  
+  // Category filter
+  html += '<div class="filter-group">';
+  html += '<div class="filter-label">Category</div>';
+  html += '<div class="filter-checkboxes">';
+  options.categories.forEach(cat => {
+    const checked = listViewFilters.categories.includes(cat) ? 'checked' : '';
+    html += `<div class="filter-checkbox-wrapper">
+      <input type="checkbox" id="filter-categories-${cat}" value="${cat}" ${checked}>
+      <label for="filter-categories-${cat}">${cat}</label>
+    </div>`;
+  });
+  html += '</div></div>';
+  
+  // Seating Type filter
+  html += '<div class="filter-group">';
+  html += '<div class="filter-label">Seating Type</div>';
+  html += '<div class="filter-checkboxes">';
+  options.seatingTypes.forEach(type => {
+    const checked = listViewFilters.seatingTypes.includes(type) ? 'checked' : '';
+    html += `<div class="filter-checkbox-wrapper">
+      <input type="checkbox" id="filter-seatingTypes-${type}" value="${type}" ${checked}>
+      <label for="filter-seatingTypes-${type}">${type}</label>
+    </div>`;
+  });
+  html += '</div></div>';
+  
+  // Section filter
+  html += '<div class="filter-group">';
+  html += '<div class="filter-label">Section</div>';
+  html += '<div class="filter-checkboxes">';
+  options.sections.forEach(section => {
+    const checked = listViewFilters.sections.includes(section) ? 'checked' : '';
+    html += `<div class="filter-checkbox-wrapper">
+      <input type="checkbox" id="filter-sections-${section}" value="${section}" ${checked}>
+      <label for="filter-sections-${section}">${section}</label>
+    </div>`;
+  });
+  html += '</div></div>';
+  
+  // Row/Table/Booth Label filter
+  html += '<div class="filter-group">';
+  html += '<div class="filter-label">Row / Table / Booth Label</div>';
+  html += '<div class="filter-checkboxes">';
+  options.rowLabels.forEach(row => {
+    const checked = listViewFilters.rowLabels.includes(row) ? 'checked' : '';
+    html += `<div class="filter-checkbox-wrapper">
+      <input type="checkbox" id="filter-rowLabels-${row}" value="${row}" ${checked}>
+      <label for="filter-rowLabels-${row}">${row}</label>
+    </div>`;
+  });
+  html += '</div></div>';
+  
+  // Seat filter
+  html += '<div class="filter-group">';
+  html += '<div class="filter-label">Seat</div>';
+  html += '<div class="filter-checkboxes">';
+  options.seats.forEach(seat => {
+    const checked = listViewFilters.seats.includes(seat) ? 'checked' : '';
+    html += `<div class="filter-checkbox-wrapper">
+      <input type="checkbox" id="filter-seats-${seat}" value="${seat}" ${checked}>
+      <label for="filter-seats-${seat}">${seat}</label>
+    </div>`;
+  });
+  html += '</div></div>';
+  
+  // Availability filter
+  html += '<div class="filter-group">';
+  html += '<div class="filter-label">Availability</div>';
+  html += '<div class="filter-checkboxes">';
+  options.availability.forEach(avail => {
+    const checked = listViewFilters.availability.includes(avail) ? 'checked' : '';
+    html += `<div class="filter-checkbox-wrapper">
+      <input type="checkbox" id="filter-availability-${avail}" value="${avail}" ${checked}>
+      <label for="filter-availability-${avail}">${avail}</label>
+    </div>`;
+  });
+  html += '</div></div>';
+  
+  // Direct Hold filter
+  html += '<div class="filter-group">';
+  html += '<div class="filter-label">Direct Hold Name</div>';
+  html += '<div class="filter-checkboxes">';
+  const holdColors = ['Red', 'Blue', 'Green', 'Orange'];
+  holdColors.forEach(hold => {
+    const checked = listViewFilters.directHolds.includes(hold) ? 'checked' : '';
+    html += `<div class="filter-checkbox-wrapper">
+      <input type="checkbox" id="filter-directHolds-${hold}" value="${hold}" ${checked}>
+      <label for="filter-directHolds-${hold}">${hold}</label>
+    </div>`;
+  });
+  html += '</div></div>';
+  
+  // Direct Kill filter
+  html += '<div class="filter-group">';
+  html += '<div class="filter-label">Direct Kill Name</div>';
+  html += '<div class="filter-checkboxes">';
+  const killColors = ['Red', 'Blue', 'Green', 'Orange'];
+  killColors.forEach(kill => {
+    const checked = listViewFilters.directKills.includes(kill) ? 'checked' : '';
+    html += `<div class="filter-checkbox-wrapper">
+      <input type="checkbox" id="filter-directKills-${kill}" value="${kill}" ${checked}>
+      <label for="filter-directKills-${kill}">${kill}</label>
+    </div>`;
+  });
+  html += '</div></div>';
+  
+  // Number of Seats filter (range)
+  html += '<div class="filter-group">';
+  html += '<div class="filter-label">Number of Seats</div>';
+  html += '<div class="filter-range">';
+  html += `<input type="number" id="filter-numSeatsFrom" placeholder="From" min="1" value="${listViewFilters.numSeatsFrom || ''}">`;
+  html += `<input type="number" id="filter-numSeatsTo" placeholder="To" min="1" value="${listViewFilters.numSeatsTo || ''}">`;
+  html += '</div></div>';
+  
+  html += '</div>';
+  
+  filterContainer.innerHTML = html;
+  
+  // Attach event listeners
+  // Event checkboxes
+  options.events.forEach(event => {
+    const checkbox = document.getElementById(`filter-events-${event}`);
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!listViewFilters.events.includes(event)) {
+            listViewFilters.events.push(event);
+          }
+        } else {
+          listViewFilters.events = listViewFilters.events.filter(v => v !== event);
+        }
+  updateAvailableSeatsTable();
+      });
+    }
+  });
+  
+  // Category checkboxes
+  options.categories.forEach(cat => {
+    const checkbox = document.getElementById(`filter-categories-${cat}`);
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!listViewFilters.categories.includes(cat)) {
+            listViewFilters.categories.push(cat);
+          }
+        } else {
+          listViewFilters.categories = listViewFilters.categories.filter(v => v !== cat);
+        }
+        updateAvailableSeatsTable();
+      });
+    }
+  });
+  
+  // Seating Type checkboxes
+  options.seatingTypes.forEach(type => {
+    const checkbox = document.getElementById(`filter-seatingTypes-${type}`);
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!listViewFilters.seatingTypes.includes(type)) {
+            listViewFilters.seatingTypes.push(type);
+          }
+        } else {
+          listViewFilters.seatingTypes = listViewFilters.seatingTypes.filter(v => v !== type);
+        }
+        updateAvailableSeatsTable();
+      });
+    }
+  });
+  
+  // Row Label checkboxes
+  options.rowLabels.forEach(row => {
+    const checkbox = document.getElementById(`filter-rowLabels-${row}`);
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!listViewFilters.rowLabels.includes(row)) {
+            listViewFilters.rowLabels.push(row);
+          }
+        } else {
+          listViewFilters.rowLabels = listViewFilters.rowLabels.filter(v => v !== row);
+        }
+        updateAvailableSeatsTable();
+      });
+    }
+  });
+  
+  // Section checkboxes
+  options.sections.forEach(section => {
+    const checkbox = document.getElementById(`filter-sections-${section}`);
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!listViewFilters.sections.includes(section)) {
+            listViewFilters.sections.push(section);
+          }
+        } else {
+          listViewFilters.sections = listViewFilters.sections.filter(v => v !== section);
+        }
+        updateAvailableSeatsTable();
+      });
+    }
+  });
+  
+  // Seat checkboxes
+  options.seats.forEach(seat => {
+    const checkbox = document.getElementById(`filter-seats-${seat}`);
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!listViewFilters.seats.includes(seat)) {
+            listViewFilters.seats.push(seat);
+          }
+        } else {
+          listViewFilters.seats = listViewFilters.seats.filter(v => v !== seat);
+        }
+        updateAvailableSeatsTable();
+      });
+    }
+  });
+  
+  // Availability checkboxes
+  options.availability.forEach(avail => {
+    const checkbox = document.getElementById(`filter-availability-${avail}`);
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!listViewFilters.availability.includes(avail)) {
+            listViewFilters.availability.push(avail);
+          }
+        } else {
+          listViewFilters.availability = listViewFilters.availability.filter(v => v !== avail);
+        }
+        updateAvailableSeatsTable();
+      });
+    }
+  });
+  
+  // Direct Hold checkboxes
+  holdColors.forEach(hold => {
+    const checkbox = document.getElementById(`filter-directHolds-${hold}`);
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!listViewFilters.directHolds.includes(hold)) {
+            listViewFilters.directHolds.push(hold);
+          }
+        } else {
+          listViewFilters.directHolds = listViewFilters.directHolds.filter(v => v !== hold);
+        }
+  updateAvailableSeatsTable();
+      });
+    }
+  });
+  
+  // Direct Kill checkboxes
+  killColors.forEach(kill => {
+    const checkbox = document.getElementById(`filter-directKills-${kill}`);
+    if (checkbox) {
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          if (!listViewFilters.directKills.includes(kill)) {
+            listViewFilters.directKills.push(kill);
+          }
+        } else {
+          listViewFilters.directKills = listViewFilters.directKills.filter(v => v !== kill);
+        }
+        updateAvailableSeatsTable();
+      });
+    }
+  });
+  
+  // Number of Seats range inputs
+  const numSeatsFrom = document.getElementById('filter-numSeatsFrom');
+  const numSeatsTo = document.getElementById('filter-numSeatsTo');
+  if (numSeatsFrom) {
+    numSeatsFrom.addEventListener('input', () => {
+      const value = numSeatsFrom.value ? parseInt(numSeatsFrom.value) : null;
+      listViewFilters.numSeatsFrom = value;
+      updateAvailableSeatsTable();
+    });
+  }
+  if (numSeatsTo) {
+    numSeatsTo.addEventListener('input', () => {
+      const value = numSeatsTo.value ? parseInt(numSeatsTo.value) : null;
+      listViewFilters.numSeatsTo = value;
+      updateAvailableSeatsTable();
+    });
+  }
 }
 
 // --- Selection UI ---
@@ -1273,6 +1776,7 @@ async function updateAvailableSeatsTable() {
         allSeats.push({
           map: mapId,
           ticketType: seat.ticketType,
+          seatingType: seat.seatingType || 'Row',
           section: seat.section,
           row: seat.row,
           seat: seat.seat,
@@ -1305,17 +1809,26 @@ async function updateAvailableSeatsTable() {
     return;
   }
 
+  // Apply filters to seats (except number of seats filter which applies to blocks)
+  let filteredSeats = applyFiltersToSeats(allSeats);
+
+  if (filteredSeats.length === 0) {
+    tableContainer.innerHTML = '<p>No seats found.</p>';
+    return;
+  }
+
   // Group seats into blocks
   const blocks = [];
   let currentBlock = null;
   
-  for (let i = 0; i < allSeats.length; i++) {
-    const seat = allSeats[i];
+  for (let i = 0; i < filteredSeats.length; i++) {
+    const seat = filteredSeats[i];
     
     // Check if seat belongs to current block
     if (currentBlock && 
         currentBlock.map === seat.map &&
         currentBlock.ticketType === seat.ticketType &&
+        currentBlock.seatingType === seat.seatingType &&
         currentBlock.section === seat.section &&
         currentBlock.row === seat.row &&
         currentBlock.directHold === seat.directHold &&
@@ -1333,6 +1846,7 @@ async function updateAvailableSeatsTable() {
       currentBlock = {
         map: seat.map,
         ticketType: seat.ticketType,
+        seatingType: seat.seatingType || 'Row',
         section: seat.section,
         row: seat.row,
         directHold: seat.directHold,
@@ -1349,17 +1863,51 @@ async function updateAvailableSeatsTable() {
     blocks.push(currentBlock);
   }
 
+  // Apply number of seats filter to blocks
+  let filteredBlocks = blocks;
+  if (listViewFilters.numSeatsFrom !== null || listViewFilters.numSeatsTo !== null) {
+    filteredBlocks = blocks.filter(block => {
+      const blockSize = block.seats.length;
+      const from = listViewFilters.numSeatsFrom !== null ? listViewFilters.numSeatsFrom : 0;
+      const to = listViewFilters.numSeatsTo !== null ? listViewFilters.numSeatsTo : Infinity;
+      return blockSize >= from && blockSize <= to;
+    });
+  }
+
+  if (filteredBlocks.length === 0) {
+    tableContainer.innerHTML = '<p>No seats found.</p>';
+    // Still render filters
+    const filterContainer = document.querySelector('.list-view-filters');
+    if (filterContainer && (!filterContainer.querySelector('.filter-panel') || filterContainer.querySelector('.filter-panel').children.length === 0)) {
+      renderListViewFilters(allSeats);
+    }
+    return;
+  }
+
   // Generate block key for expand/collapse state
   function getBlockKey(block) {
     return `${block.map}-${block.ticketType}-${block.section}-${block.row}-${block.seats[0].seat}-${block.seats[block.seats.length - 1].seat}`;
   }
 
+  // Get dynamic row column label based on seating type filter
+  function getRowColumnLabel() {
+    const selected = listViewFilters.seatingTypes;
+    if (selected.length === 0) return 'Row'; // No selection, default to Row
+    if (selected.length === 1) return selected[0]; // Single selection
+    // Multiple selections - abbreviate
+    const abbrevMap = { 'Row': 'R', 'Table': 'T', 'Booth': 'B' };
+    return selected.map(s => abbrevMap[s] || s).join('/');
+  }
+  
+  const rowColumnLabel = getRowColumnLabel();
+  
   // Render table (using border-collapse: separate for sticky thead to work)
   let html = '<table style="margin: 0; border-collapse: separate; border-spacing: 0; width: 100%;"><thead><tr>' +
   '<th style="border:0.5px solid #e1e4e8;">Event</th>' +
-    '<th style="border:0.5px solid #e1e4e8;">Ticket Type</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">Category</th>' +
+    '<th style="border:0.5px solid #e1e4e8;">Seating Type</th>' +
     '<th style="border:0.5px solid #e1e4e8;">Section</th>' +
-  '<th style="border:0.5px solid #e1e4e8;">Row</th>' +
+    `<th style="border:0.5px solid #e1e4e8;">${rowColumnLabel}</th>` +
     '<th style="border:0.5px solid #e1e4e8;">Seat</th>' +
   '<th style="border:0.5px solid #e1e4e8;">Num seats</th>' +
     '<th style="border:0.5px solid #e1e4e8;">Availability</th>' +
@@ -1371,7 +1919,7 @@ async function updateAvailableSeatsTable() {
     '<th style="border:0.5px solid #e1e4e8; width: 40px;"></th>' +
     '</tr></thead><tbody>';
   
-  blocks.forEach((block, blockIndex) => {
+  filteredBlocks.forEach((block, blockIndex) => {
     const blockKey = getBlockKey(block);
     const isExpanded = blockExpandState.get(blockKey) === true; // Default to collapsed
     const firstSeat = block.seats[0];
@@ -1385,6 +1933,7 @@ async function updateAvailableSeatsTable() {
     html += `<tr class="block-summary-row" data-block-key="${blockKey}" style="color:${rowColor};">
       <td style="border:0.5px solid #e1e4e8;">${firstSeat.map}</td>
       <td style="border:0.5px solid #e1e4e8;">${firstSeat.ticketType}</td>
+      <td style="border:0.5px solid #e1e4e8;">${firstSeat.seatingType}</td>
       <td style="border:0.5px solid #e1e4e8;">${firstSeat.section}</td>
       <td style="border:0.5px solid #e1e4e8;">${firstSeat.row}</td>
       <td style="border:0.5px solid #e1e4e8;">${seatRange}</td>
@@ -1404,6 +1953,7 @@ async function updateAvailableSeatsTable() {
       html += `<tr class="block-seat-row ${isExpanded ? 'expanded' : 'collapsed'}" data-block-key="${blockKey}" style="color:${seatRowColor};">
         <td style="border:0.5px solid #e1e4e8;">${seat.map}</td>
         <td style="border:0.5px solid #e1e4e8;">${seat.ticketType}</td>
+        <td style="border:0.5px solid #e1e4e8;">${seat.seatingType}</td>
         <td style="border:0.5px solid #e1e4e8;">${seat.section}</td>
         <td style="border:0.5px solid #e1e4e8;">${seat.row}</td>
         <td style="border:0.5px solid #e1e4e8;">&nbsp;&nbsp;&nbsp;${seat.seat}</td>
@@ -1421,6 +1971,12 @@ async function updateAvailableSeatsTable() {
   
   html += '</tbody></table>';
   tableContainer.innerHTML = html;
+  
+  // Render filters UI (always re-render to sync with filter state)
+  const filterContainer = document.querySelector('.list-view-filters');
+  if (filterContainer) {
+    renderListViewFilters(allSeats);
+  }
   
   // Add expand/collapse handlers
   document.querySelectorAll('.expand-toggle').forEach(toggle => {
@@ -1465,6 +2021,8 @@ function switchView(viewName) {
     listView.classList.add('active');
     mapViewBtn.classList.remove('active');
     listViewBtn.classList.add('active');
+    // Clear selections and hide selection drawer when switching to list view
+    clearSelection();
     // Update the table when switching to list view
     updateAvailableSeatsTable();
   }
@@ -1493,6 +2051,8 @@ function switchMainSection(sectionName) {
   } else if (sectionName === 'config') {
     prototypeSection.classList.remove('active');
     configSection.classList.add('active');
+    // Clear selections and hide selection drawer when switching to config
+    clearSelection();
     // Load config data when switching to config
     loadStateCategories();
   }
@@ -1682,7 +2242,7 @@ async function updateCategoryName(categoryId, newName) {
     loadStateCategories();
     return;
   }
-  
+
   try {
     await window.seatAPI.updateStateCategoryName(categoryId, newName.trim());
     // Update local data
@@ -2031,7 +2591,7 @@ function onMouseMove(e) {
   }
   
   if (selectionBox) {
-    updateSelectionBox(e.pageX, e.pageY);
+  updateSelectionBox(e.pageX, e.pageY);
   }
 }
 

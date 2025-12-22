@@ -8,6 +8,7 @@ const seats = pgTable('seats', {
   section: varchar('section', { length: 10 }).notNull(),
   row: varchar('row', { length: 10 }).notNull(),
   seat: integer('seat').notNull(),
+  seatingType: varchar('seating_type', { length: 20 }).default('Row').notNull(),
   directHoldName: varchar('direct_hold_name', { length: 50 }),
   killName: varchar('kill_name', { length: 50 }),
   notForSale: boolean('not_for_sale').default(false).notNull(),

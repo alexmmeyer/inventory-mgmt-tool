@@ -35,6 +35,7 @@ async function seed() {
               section,
               row,
               seat,
+              seatingType: 'Row',
               directHoldName: null,
               killName: null,
               notForSale: false,
