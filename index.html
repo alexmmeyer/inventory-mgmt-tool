@@ -34,6 +34,13 @@
         <button id="list-view-btn" class="view-toggle-btn">List View</button>
       </div>
       
+      <!-- Filter button (visible in list view) -->
+      <button id="filter-icon-btn" class="filter-icon-btn hidden" title="Filters">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      
       <button id="reset-all-btn" class="reset-all-btn">Reset All</button>
     </div>
 
@@ -102,11 +109,35 @@
     <!-- List View -->
     <div id="list-view" class="view-container">
     <div class="list-view-panel">
-      <div class="list-view-filters">
-        <!-- Filters will be rendered here dynamically -->
-      </div>
       <div class="list-view-table-container">
         <div id="available-seats-table"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter Panel Overlay -->
+  <div id="filter-panel-overlay" class="filter-panel-overlay hidden"></div>
+
+  <!-- Filter Panel Container -->
+  <div id="filter-panel-container" class="filter-panel-container hidden">
+    <div class="filter-panel-header">
+      <button id="filter-panel-close" class="filter-panel-close" title="Close">
+        <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M15 5L5 15M5 5l10 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
+      <button id="filter-panel-apply" class="filter-panel-apply">Apply</button>
+    </div>
+    <div class="filter-panel-content">
+      <div class="filter-panel-left">
+        <div class="filter-category-list">
+          <!-- Filter categories will be rendered here -->
+        </div>
+      </div>
+      <div class="filter-panel-right">
+        <div class="filter-options-container">
+          <!-- Filter options will be rendered here -->
+        </div>
       </div>
     </div>
   </div>
