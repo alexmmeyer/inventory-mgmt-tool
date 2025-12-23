@@ -42,9 +42,6 @@ router.get('/seats/:eventId/with-indirect', async (req, res) => {
     const indirectHoldsData = seatIds.length > 0 
       ? await db.select().from(indirectHolds).where(inArray(indirectHolds.seatId, seatIds))
       : [];
-    const indirectKillsData = seatIds.length > 0
-      ? await db.select().from(indirectKills).where(inArray(indirectKills.seatId, seatIds))
-      : [];
     const indirectStatesData = seatIds.length > 0
       ? await db.select().from(indirectStates).where(inArray(indirectStates.seatId, seatIds))
       : [];
@@ -53,7 +50,6 @@ router.get('/seats/:eventId/with-indirect', async (req, res) => {
     const seatsWithIndirect = allSeats.map(seat => ({
       ...seat,
       indirectHolds: indirectHoldsData.filter(ih => ih.seatId === seat.id),
-      indirectKills: indirectKillsData.filter(ik => ik.seatId === seat.id),
       indirectStates: indirectStatesData.filter(is => is.seatId === seat.id),
     }));
     
@@ -210,143 +206,7 @@ router.delete('/seats/:id/hold', async (req, res) => {
   }
 });
 
-// Apply direct kill to a seat
-router.put('/seats/:id/kill', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { killName } = req.body;
-    const seatId = parseInt(id);
-    
-    // Get the seat
-    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
-    if (seatResult.length === 0) {
-      return res.status(404).json({ error: 'Seat not found' });
-    }
-    const seat = seatResult[0];
-    
-    // Validation: Resale Listed seats cannot be killed
-    if (seat.seatsIoStatus === 'resale') {
-      return res.status(400).json({ error: 'Resale Listed seats cannot be killed' });
-    }
-    
-    // Update direct kill and set seats_io_status to 'killed'
-    await db.update(seats)
-      .set({ 
-        killName,
-        seatsIoStatus: 'killed'
-      })
-      .where(eq(seats.id, seatId));
-    
-    // Get related events
-    const relatedEvents = getRelatedEvents(seat.eventId);
-    
-    // Find matching seats in related events
-    const matchingSeats = await db.select().from(seats).where(
-      and(
-        inArray(seats.eventId, relatedEvents),
-        eq(seats.ticketType, seat.ticketType),
-        eq(seats.section, seat.section),
-        eq(seats.row, seat.row),
-        eq(seats.seat, seat.seat)
-      )
-    );
-    
-    // Remove existing indirect kills and indirect states for these seats from this source
-    for (const matchingSeat of matchingSeats) {
-      await db.delete(indirectKills).where(
-        and(
-          eq(indirectKills.seatId, matchingSeat.id),
-          eq(indirectKills.sourceEvent, seat.eventId)
-        )
-      );
-      await db.delete(indirectStates).where(
-        and(
-          eq(indirectStates.seatId, matchingSeat.id),
-          eq(indirectStates.sourceEvent, seat.eventId),
-          eq(indirectStates.state, 'killed')
-        )
-      );
-    }
-    
-    // Create indirect kills
-    const indirectKillInserts = matchingSeats.map(matchingSeat => ({
-      seatId: matchingSeat.id,
-      killName,
-      sourceEvent: seat.eventId,
-    }));
-    
-    if (indirectKillInserts.length > 0) {
-      await db.insert(indirectKills).values(indirectKillInserts);
-    }
-    
-    // Create indirect states for killed state
-    const indirectStateInserts = matchingSeats.map(matchingSeat => ({
-      seatId: matchingSeat.id,
-      state: 'killed',
-      sourceEvent: seat.eventId,
-    }));
-    
-    if (indirectStateInserts.length > 0) {
-      await db.insert(indirectStates).values(indirectStateInserts);
-    }
-    
-    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
-    res.json(updated[0]);
-  } catch (error) {
-    console.error('Error applying kill:', error);
-    res.status(500).json({ error: 'Failed to apply kill' });
-  }
-});
-
-// Remove direct kill from a seat
-router.delete('/seats/:id/kill', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const seatId = parseInt(id);
-    
-    // Get the seat
-    const seatResult = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
-    if (seatResult.length === 0) {
-      return res.status(404).json({ error: 'Seat not found' });
-    }
-    const seat = seatResult[0];
-    
-    // Remove direct kill
-    await db.update(seats)
-      .set({ killName: null })
-      .where(eq(seats.id, seatId));
-    
-    // Get related events
-    const relatedEvents = getRelatedEvents(seat.eventId);
-    
-    // Find matching seats in related events
-    const matchingSeats = await db.select().from(seats).where(
-      and(
-        inArray(seats.eventId, relatedEvents),
-        eq(seats.ticketType, seat.ticketType),
-        eq(seats.section, seat.section),
-        eq(seats.row, seat.row),
-        eq(seats.seat, seat.seat)
-      )
-    );
-    
-    // Remove indirect kills
-    for (const matchingSeat of matchingSeats) {
-      await db.delete(indirectKills).where(
-        and(
-          eq(indirectKills.seatId, matchingSeat.id),
-          eq(indirectKills.sourceEvent, seat.eventId)
-        )
-      );
-    }
-    
-    const updated = await db.select().from(seats).where(eq(seats.id, seatId)).limit(1);
-    res.json(updated[0]);
-  } catch (error) {
-    console.error('Error removing kill:', error);
-    res.status(500).json({ error: 'Failed to remove kill' });
-  }
-});
+// Removed kill endpoints - kill feature no longer supported
 
 // Add to Cart endpoint
 router.put('/seats/:id/add-to-cart', async (req, res) => {

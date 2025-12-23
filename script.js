@@ -18,7 +18,7 @@ let seatElementMap = new Map();
 
 let selectedSeats = new Set(); // Store seat IDs (database IDs)
 let hasUnsavedChanges = false;
-let currentAction = null; // 'hold' or 'kill'
+let currentAction = null; // 'hold'
 
 // List view filters state (persists during navigation, resets on page refresh or reset all)
 let listViewFilters = {
@@ -30,7 +30,6 @@ let listViewFilters = {
   seats: [],
   availability: [],
   directHolds: [],
-  directKills: [],
   numSeatsFrom: null,
   numSeatsTo: null
 };
@@ -185,8 +184,6 @@ function updateSeatElementState(seatEl, seat) {
   // Remove existing symbols
   const existingSparkle = seatEl.querySelector('.not-for-sale-sparkle');
   if (existingSparkle) existingSparkle.remove();
-  const existingKill = seatEl.querySelector('.kill-mark');
-  if (existingKill) existingKill.remove();
   const existingStateSymbol = seatEl.querySelector('.state-symbol');
   if (existingStateSymbol) existingStateSymbol.remove();
   
@@ -207,14 +204,6 @@ function updateSeatElementState(seatEl, seat) {
     }
   }
   
-  // Check if seat has a kill and get kill color
-  const hasDirectKill = !!seat.killName;
-  const hasIndirectKill = seat.indirectKills && seat.indirectKills.length > 0;
-  const hasKill = hasDirectKill || hasIndirectKill;
-  const killColor = seat.killName 
-    ? getHoldColor(seat.killName) 
-    : (hasIndirectKill ? getHoldColor(seat.indirectKills[0].killName) : null);
-  
   // Check for indirect states (propagated states)
   const hasIndirectState = seat.indirectStates && seat.indirectStates.length > 0;
   const indirectState = hasIndirectState ? seat.indirectStates[0].state : null;
@@ -226,23 +215,12 @@ function updateSeatElementState(seatEl, seat) {
     seatsIoStatus: actualState
   });
   
-  // Symbol priority: Kill (X) > State symbol (dot/refresh) > Not For Sale (sparkle)
-  // Priority logic: If killed, show kill. Else if has state symbol, show state. Else if not-for-sale, show sparkle.
-  const showKill = hasKill;
-  const showStateSymbol = !hasKill && (seatState === 'In Cart' || seatState === 'Sold' || seatState === 'Reserved' || seatState === 'Resold' || seatState === 'Resale Listed');
-  const showNotForSale = !hasKill && !showStateSymbol && seat.notForSale;
+  // Symbol priority: State symbol (dot/refresh) > Not For Sale (sparkle)
+  const showStateSymbol = (seatState === 'In Cart' || seatState === 'Sold' || seatState === 'Reserved' || seatState === 'Resold' || seatState === 'Resale Listed');
+  const showNotForSale = !showStateSymbol && seat.notForSale;
   
-  // Apply styling - direct kill color themes the seat, indirect kill only colors the symbol (keeps gray background)
-  if (hasDirectKill && killColor) {
-    // Has direct kill - theme entire seat with kill color (like not-for-sale with hold)
-    if (seat.notForSale) {
-      seatEl.style.backgroundColor = lightenColorWithOpacity(killColor, 0.3);
-      seatEl.style.border = 'none';
-    } else {
-      seatEl.style.backgroundColor = lightenColorWithOpacity(killColor, 0.3);
-      seatEl.style.border = 'none';
-    }
-  } else if (holdColor && !hasDirectKill) {
+  // Apply styling
+  if (holdColor) {
     // Has hold but no kill
     if (isIndirectHold) {
       // Indirect hold - use dotted border, keep default background
@@ -266,7 +244,7 @@ function updateSeatElementState(seatEl, seat) {
       }
     }
   } else {
-    // No hold, no kill - use default gray styling
+    // No hold - use default gray styling
     if (seat.notForSale || showStateSymbol) {
       seatEl.style.backgroundColor = '#f3f4f6'; // Lighter gray for not-for-sale or state seats
       seatEl.style.border = 'none'; // No border
@@ -276,41 +254,8 @@ function updateSeatElementState(seatEl, seat) {
     }
   }
   
-  // Apply kill mark (X symbol in darker kill color) - Priority 1
-  if (showKill && killColor) {
-    if (hasDirectKill) {
-      const killMark = document.createElement('div');
-      killMark.className = 'kill-mark direct-kill';
-      killMark.textContent = 'X';
-      killMark.style.color = darkenColor(killColor, 0.6); // Darker version of kill color
-      killMark.style.position = 'absolute';
-      killMark.style.top = '50%';
-      killMark.style.left = '50%';
-      killMark.style.transform = 'translate(-50%, -50%)';
-      killMark.style.fontSize = '16px';
-      killMark.style.fontWeight = 'bold';
-      killMark.style.pointerEvents = 'none';
-      killMark.style.zIndex = '30'; // Highest priority
-      seatEl.appendChild(killMark);
-    } else if (hasIndirectKill) {
-      // Indirect kill - only color the symbol, keep gray background
-      const killMark = document.createElement('div');
-      killMark.className = 'kill-mark indirect-kill';
-      killMark.textContent = 'x';
-      killMark.style.color = darkenColor(killColor, 0.6); // Darker version of kill color
-      killMark.style.position = 'absolute';
-      killMark.style.top = '50%';
-      killMark.style.left = '50%';
-      killMark.style.transform = 'translate(-50%, -50%)';
-      killMark.style.fontSize = '16px';
-      killMark.style.fontWeight = 'bold';
-      killMark.style.pointerEvents = 'none';
-      killMark.style.zIndex = '30'; // Highest priority
-      seatEl.appendChild(killMark);
-    }
-  }
-  // Apply state symbol (dot or refresh) - Priority 2
-  else if (showStateSymbol) {
+  // Apply state symbol (dot or refresh)
+  if (showStateSymbol) {
     const stateSymbol = document.createElement('div');
     stateSymbol.className = 'state-symbol';
     
@@ -644,40 +589,6 @@ async function releaseHold() {
   updateAvailableSeatsTable();
 }
 
-async function releaseKill() {
-  const promises = [];
-  selectedSeats.forEach(seatId => {
-    const seatEl = seatElementMap.get(seatId);
-    if (!seatEl) return;
-    
-    // Only release if it has a direct kill
-    const hasDirectKill = seatEl.querySelector('.kill-mark.direct-kill');
-    if (hasDirectKill) {
-      promises.push(window.seatAPI.removeDirectKill(seatId));
-    }
-  });
-  
-  await Promise.all(promises);
-  
-  // Reload affected events
-  const affectedEvents = new Set();
-  selectedSeats.forEach(seatId => {
-    const seatEl = seatElementMap.get(seatId);
-    if (seatEl) affectedEvents.add(seatEl.dataset.eventId);
-  });
-  
-  for (const eventId of affectedEvents) {
-    await reloadSeatData(eventId);
-    const related = getRelatedEvents(eventId);
-    for (const relEventId of related) {
-      await reloadSeatData(relEventId);
-    }
-  }
-
-  clearSelection();
-  updateAvailableSeatsTable();
-}
-
 function getRelatedEvents(eventId) {
   const related = new Set();
   
@@ -686,16 +597,16 @@ function getRelatedEvents(eventId) {
     parentMaps[eventId].forEach(child => related.add(child));
     
     // Also add other parents that share the same children
-    Object.keys(parentMaps).forEach(otherParent => {
+      Object.keys(parentMaps).forEach(otherParent => {
       if (otherParent !== eventId) {
         parentMaps[eventId].forEach(child => {
           if (parentMaps[otherParent]?.includes(child)) {
             related.add(otherParent);
           }
         });
-          }
-        });
-      }
+        }
+      });
+    }
 
   // If it's a child (event), only add its own parent(s)
   // Do NOT propagate to siblings or other parents
@@ -713,37 +624,6 @@ async function applyHoldToSelectedSeats(color) {
   const promises = [];
   selectedSeats.forEach(seatId => {
     promises.push(window.seatAPI.applyDirectHold(seatId, holdName));
-  });
-  
-  await Promise.all(promises);
-  
-  // Reload affected events
-  const affectedEvents = new Set();
-  selectedSeats.forEach(seatId => {
-    const seatEl = seatElementMap.get(seatId);
-    if (seatEl) affectedEvents.add(seatEl.dataset.eventId);
-  });
-  
-  for (const eventId of affectedEvents) {
-    await reloadSeatData(eventId);
-    const related = getRelatedEvents(eventId);
-    for (const relEventId of related) {
-      await reloadSeatData(relEventId);
-    }
-  }
-
-  clearSelection();
-  document.getElementById('palette').classList.add('hidden');
-  updateAvailableSeatsTable();
-}
-
-async function applyKillToSelectedSeats(color) {
-  const killName = getHoldNameFromColor(color);
-  if (!killName) return;
-  
-  const promises = [];
-  selectedSeats.forEach(seatId => {
-    promises.push(window.seatAPI.applyDirectKill(seatId, killName));
   });
   
   await Promise.all(promises);
@@ -1081,7 +961,6 @@ function resetListViewFilters() {
     seats: [],
     availability: [],
     directHolds: [],
-    directKills: [],
     numSeatsFrom: null,
     numSeatsTo: null
   };
@@ -1099,7 +978,6 @@ function copyFilters(filters) {
     seats: [...filters.seats],
     availability: [...filters.availability],
     directHolds: [...filters.directHolds],
-    directKills: [...filters.directKills],
     numSeatsFrom: filters.numSeatsFrom,
     numSeatsTo: filters.numSeatsTo
   };
@@ -1165,7 +1043,6 @@ function extractFilterOptions(allSeats) {
     seats: new Set(),
     availability: new Set(),
     directHolds: new Set(),
-    directKills: new Set(),
   };
   
   allSeats.forEach(seat => {
@@ -1177,7 +1054,6 @@ function extractFilterOptions(allSeats) {
     if (seat.seat) options.seats.add(seat.seat);
     if (seat.availability) options.availability.add(seat.availability);
     if (seat.directHold) options.directHolds.add(seat.directHold);
-    if (seat.directKill) options.directKills.add(seat.directKill);
   });
   
   // Convert Sets to sorted arrays, filtering out 'season' from events
@@ -1190,7 +1066,6 @@ function extractFilterOptions(allSeats) {
     seats: Array.from(options.seats).sort((a, b) => a - b),
     availability: Array.from(options.availability).sort(),
     directHolds: Array.from(options.directHolds).sort(),
-    directKills: Array.from(options.directKills).sort(),
   };
 }
 
@@ -1241,14 +1116,6 @@ function applyFiltersToSeats(seats) {
     });
   }
   
-  // Direct Kill filter
-  if (listViewFilters.directKills.length > 0) {
-    filtered = filtered.filter(seat => {
-      const kill = seat.directKill || null;
-      return listViewFilters.directKills.includes(kill);
-    });
-  }
-  
   return filtered;
 }
 
@@ -1275,7 +1142,6 @@ function renderFilterPanel() {
         seatingType: seat.seatingType || 'Row',
         availability: getSeatState(seat),
         directHold: seat.directHoldName || null,
-        directKill: seat.killName || null,
       });
     }
   }
@@ -1295,7 +1161,6 @@ function renderFilterPanel() {
       'By Seat',
       'By Availability',
       'By Direct Hold Name',
-      'By Direct Kill Name',
       'By Number of Seats'
     ];
     
@@ -1339,7 +1204,6 @@ function renderSummaryTab(container, options) {
     filters.seats.length > 0 ||
     filters.availability.length > 0 ||
     filters.directHolds.length > 0 ||
-    filters.directKills.length > 0 ||
     filters.numSeatsFrom !== null ||
     filters.numSeatsTo !== null;
   
@@ -1463,20 +1327,6 @@ function renderSummaryTab(container, options) {
     html += '</div></div>';
   }
   
-  // By Direct Kill Name
-  if (filters.directKills.length > 0) {
-    html += '<div class="filter-summary-group">';
-    html += '<div class="filter-summary-group-title">By Direct Kill Name</div>';
-    html += '<div class="filter-summary-items">';
-    filters.directKills.forEach(kill => {
-      html += `<div class="filter-summary-item">
-        <span>${kill}</span>
-        <button class="filter-summary-remove" data-filter="directKills" data-value="${kill}" title="Remove">×</button>
-      </div>`;
-    });
-    html += '</div></div>';
-  }
-  
   // By Number of Seats
   if (filters.numSeatsFrom !== null || filters.numSeatsTo !== null) {
     html += '<div class="filter-summary-group">';
@@ -1532,7 +1382,6 @@ function renderFilterCategoryOptions(container, category, options) {
     'By Seat': { key: 'seats', options: options.seats },
     'By Availability': { key: 'availability', options: options.availability },
     'By Direct Hold Name': { key: 'directHolds', options: ['Red', 'Blue', 'Green', 'Orange'] },
-    'By Direct Kill Name': { key: 'directKills', options: ['Red', 'Blue', 'Green', 'Orange'] },
     'By Number of Seats': { key: 'numSeats', isRange: true }
   };
   
@@ -1801,22 +1650,6 @@ async function updateAvailableSeatsTable() {
               .join(', ');
           }
         }
-      
-        // Process direct kill
-        let directKill = seat.killName || null;
-      
-        // Process indirect kills
-        let indirectKills = '-';
-        if (seat.indirectKills && seat.indirectKills.length > 0) {
-          if (seat.indirectKills.length === 1) {
-            const indirectKill = seat.indirectKills[0];
-            indirectKills = `${indirectKill.killName} (${indirectKill.sourceEvent})`;
-          } else {
-            indirectKills = seat.indirectKills
-              .map(ik => `${ik.killName} (${ik.sourceEvent})`)
-              .join(', ');
-          }
-        }
         
         allSeats.push({
           map: mapId,
@@ -1830,8 +1663,6 @@ async function updateAvailableSeatsTable() {
           stateCategory,
           directHold,
           indirectHolds,
-          directKill,
-          indirectKills,
           seatData: seat, // Store full seat data for individual rows
         });
       });
@@ -1877,7 +1708,6 @@ async function updateAvailableSeatsTable() {
         currentBlock.section === seat.section &&
         currentBlock.row === seat.row &&
         currentBlock.directHold === seat.directHold &&
-        currentBlock.directKill === seat.directKill &&
         currentBlock.availability === seat.availability &&
         currentBlock.stateCategory === seat.stateCategory &&
         currentBlock.seats[currentBlock.seats.length - 1].seat === seat.seat - 1) {
@@ -1895,7 +1725,6 @@ async function updateAvailableSeatsTable() {
         section: seat.section,
         row: seat.row,
         directHold: seat.directHold,
-        directKill: seat.directKill,
         availability: seat.availability,
         stateCategory: seat.stateCategory,
         seats: [seat],
@@ -1954,8 +1783,6 @@ async function updateAvailableSeatsTable() {
     '<th style="border:0.5px solid #e1e4e8;">State</th>' +
     '<th style="border:0.5px solid #e1e4e8;">Direct Hold</th>' +
     '<th style="border:0.5px solid #e1e4e8;">Indirect Holds</th>' +
-    '<th style="border:0.5px solid #e1e4e8;">Direct Kill</th>' +
-    '<th style="border:0.5px solid #e1e4e8;">Indirect Kills</th>' +
     '<th style="border:0.5px solid #e1e4e8; width: 40px;"></th>' +
     '</tr></thead><tbody>';
   
@@ -2006,8 +1833,6 @@ async function updateAvailableSeatsTable() {
       <td style="border:0.5px solid #e1e4e8;">${firstSeat.stateCategory}</td>
       <td style="border:0.5px solid #e1e4e8;">${firstSeat.directHold || '-'}</td>
       <td style="border:0.5px solid #e1e4e8;">${aggregatedIndirectHolds}</td>
-      <td style="border:0.5px solid #e1e4e8;">${firstSeat.directKill || '-'}</td>
-      <td style="border:0.5px solid #e1e4e8;">${firstSeat.indirectKills === '-' ? '-' : firstSeat.indirectKills}</td>
       <td style="border:0.5px solid #e1e4e8; text-align: center;"><span class="expand-toggle ${isExpanded ? 'expanded' : ''}" data-block-key="${blockKey}"></span></td>
       </tr>`;
     
@@ -2026,8 +1851,6 @@ async function updateAvailableSeatsTable() {
         <td style="border:0.5px solid #e1e4e8;">${seat.state}</td>
         <td style="border:0.5px solid #e1e4e8;">${seat.directHold || '-'}</td>
         <td style="border:0.5px solid #e1e4e8;">${seat.indirectHolds === '-' ? '-' : seat.indirectHolds}</td>
-        <td style="border:0.5px solid #e1e4e8;">${seat.directKill || '-'}</td>
-        <td style="border:0.5px solid #e1e4e8;">${seat.indirectKills === '-' ? '-' : seat.indirectKills}</td>
         <td style="border:0.5px solid #e1e4e8;"></td>
         </tr>`;
     });
@@ -2055,8 +1878,8 @@ async function updateAvailableSeatsTable() {
           row.classList.toggle('expanded', !isCurrentlyExpanded);
           row.classList.toggle('collapsed', isCurrentlyExpanded);
         }
-      });
     });
+  });
   });
 }
 
@@ -2101,7 +1924,7 @@ function cleanupSelectionBoxes() {
 }
 
 // --- Navigation ---
-function switchMainSection(sectionName) {
+async function switchMainSection(sectionName) {
   const prototypeSection = document.getElementById('prototype-section');
   const configSection = document.getElementById('config-section');
   
@@ -2111,13 +1934,20 @@ function switchMainSection(sectionName) {
   if (sectionName === 'prototype') {
     prototypeSection.classList.add('active');
     configSection.classList.remove('active');
+    // Reload state categories to get latest configuration
+    await loadStateCategories();
+    // If list view is active, update the table to reflect new state category config
+    const listView = document.getElementById('list-view');
+    if (listView && listView.classList.contains('active')) {
+      await updateAvailableSeatsTable();
+    }
   } else if (sectionName === 'config') {
     prototypeSection.classList.remove('active');
     configSection.classList.add('active');
     // Clear selections and hide selection drawer when switching to config
     clearSelection();
     // Load config data when switching to config
-    loadStateCategories();
+    await loadStateCategories();
   }
 }
 
@@ -2494,23 +2324,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('palette').classList.toggle('hidden');
   });
 
-  document.getElementById('kill').addEventListener('click', () => {
-    const killBtn = document.getElementById('kill');
-    // Don't allow action if button is disabled or no seats are selected
-    if (killBtn.disabled || selectedSeats.size === 0) {
-      return;
-    }
-    currentAction = 'kill';
-    document.getElementById('palette').classList.toggle('hidden');
-  });
-
   document.querySelectorAll('.color-swatch').forEach(swatch => {
     swatch.addEventListener('click', () => {
       const color = swatch.dataset.color;
       if (currentAction === 'hold') {
         applyHoldToSelectedSeats(color);
-      } else if (currentAction === 'kill') {
-        applyKillToSelectedSeats(color);
       }
     });
   });

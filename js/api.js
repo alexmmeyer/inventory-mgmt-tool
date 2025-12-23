@@ -69,41 +69,6 @@ async function removeDirectHold(seatId) {
 }
 
 /**
- * Apply a direct kill to a seat
- * @param {number} seatId - Seat database ID
- * @param {string} killName - Kill name (Red, Green, Blue, Orange)
- * @returns {Promise<Object>} Updated seat object
- */
-async function applyDirectKill(seatId, killName) {
-  const response = await fetch(`${API_BASE_URL}/seats/${seatId}/kill`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ killName }),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to apply kill to seat ${seatId}`);
-  }
-  return response.json();
-}
-
-/**
- * Remove a direct kill from a seat
- * @param {number} seatId - Seat database ID
- * @returns {Promise<Object>} Updated seat object
- */
-async function removeDirectKill(seatId) {
-  const response = await fetch(`${API_BASE_URL}/seats/${seatId}/kill`, {
-    method: 'DELETE',
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to remove kill from seat ${seatId}`);
-  }
-  return response.json();
-}
-
-/**
  * Batch update seats (for not_for_sale flags)
  * @param {Array<{id: number, notForSale: boolean}>} updates - Array of seat updates
  * @returns {Promise<Array>} Array of updated seat objects
@@ -334,8 +299,6 @@ if (typeof window !== 'undefined') {
     updateSeatNotForSale,
     applyDirectHold,
     removeDirectHold,
-    applyDirectKill,
-    removeDirectKill,
     batchUpdateSeats,
     resetAllSeats,
     addToCart,
